@@ -16,7 +16,7 @@ RUN groupadd --gid $USER_GID $USERNAME \
 # Install additonal packages - add any that you need
 RUN apt-get update && apt-get upgrade -y && \
     apt-get install -y python3-pip python-is-python3 ssh neovim git \
-    ros-$ROS_DISTRO-ros-gz
+    ros-$ROS_DISTRO-ros-gz ros-$ROS_DISTRO-ur-simulation-gz ros-$ROS_DISTRO-ur-moveit-config
 ENV SHELL /bin/bash
 
 # Source ROS environment automatically

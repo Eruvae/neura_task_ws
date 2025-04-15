@@ -1,10 +1,10 @@
 #include <cstdio>
+#include "neura_task/joint_command_publisher.h"
 
 int main(int argc, char ** argv)
 {
-  (void) argc;
-  (void) argv;
-
-  printf("hello world neura_task package\n");
+  rclcpp::init(argc, argv);
+  rclcpp::spin(std::make_shared<JointCommandPublisher>());
+  rclcpp::shutdown();
   return 0;
 }
