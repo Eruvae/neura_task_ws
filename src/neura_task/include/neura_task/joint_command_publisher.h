@@ -7,26 +7,101 @@
 #include <string>
 
 #include "rclcpp/rclcpp.hpp"
+#include "rclcpp_action/rclcpp_action.hpp"
 #include "trajectory_msgs/msg/joint_trajectory.hpp"
+#include "control_msgs/action/follow_joint_trajectory.hpp"
 
 using namespace std::chrono_literals;
 using namespace std::string_view_literals;
 
 class JointCommandPublisher : public rclcpp::Node
 {
+  using FollowJointTrajectory = control_msgs::action::FollowJointTrajectory;
+  using GoalHandleTrajectory = rclcpp_action::ClientGoalHandle<FollowJointTrajectory>;
+
   public:
     JointCommandPublisher()
     : Node("joint_command_publisher"), count_(0)
     {
       publisher_ = this->create_publisher<trajectory_msgs::msg::JointTrajectory>("/scaled_joint_trajectory_controller/joint_trajectory", 10);
-      move_to_joint_state({0.0, 0.0, 0.0, 0.0, 0.0, 0.0}, 10);
-      rclcpp::sleep_for(std::chrono::seconds(10));
-      timer_ = this->create_wall_timer(
-      1000ms, std::bind(&JointCommandPublisher::timer_callback, this));
+      client_ptr_ = rclcpp_action::create_client<FollowJointTrajectory>(this, "/scaled_joint_trajectory_controller/follow_joint_trajectory");
+      send_goal({0.0, 0.0, 0.0, 0.0, 0.0, 0.0}, 10);
+      //rclcpp::sleep_for(std::chrono::seconds(10));
+      //timer_ = this->create_wall_timer(
+      //1000ms, std::bind(&JointCommandPublisher::timer_callback, this));
     }
 
   private:
     //static constexpr std::array<std::string_view, 6> joint_names = {"shoulder_pan_joint"sv, "shoulder_lift_joint"sv, "elbow_joint"sv, "wrist_1_joint"sv, "wrist_2_joint"sv, "wrist_3_joint"sv};
+
+    void send_goal(const std::vector<double> &joint_values, double time_to_move)
+    {
+      using namespace std::placeholders;
+  
+      //this->timer_->cancel();
+  
+      if (!this->client_ptr_->wait_for_action_server()) {
+        RCLCPP_ERROR(this->get_logger(), "Action server not available after waiting");
+        rclcpp::shutdown();
+      }
+  
+      auto goal_msg = FollowJointTrajectory::Goal();
+      goal_msg.trajectory.joint_names = {"shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint", "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"};
+      goal_msg.trajectory.points.resize(1);
+      goal_msg.trajectory.points[0].positions = joint_values;
+      goal_msg.trajectory.points[0].time_from_start = rclcpp::Duration::from_seconds(time_to_move);
+  
+      RCLCPP_INFO(this->get_logger(), "Sending goal");
+  
+      auto send_goal_options = rclcpp_action::Client<FollowJointTrajectory>::SendGoalOptions();
+      send_goal_options.goal_response_callback = std::bind(&JointCommandPublisher::goal_response_callback, this, _1);
+      send_goal_options.feedback_callback = std::bind(&JointCommandPublisher::feedback_callback, this, _1, _2);
+      send_goal_options.result_callback = std::bind(&JointCommandPublisher::result_callback, this, _1);
+      this->client_ptr_->async_send_goal(goal_msg, send_goal_options);
+    }
+
+    void goal_response_callback(const GoalHandleTrajectory::SharedPtr &goal_handle)
+    {
+      if (!goal_handle) {
+        RCLCPP_ERROR(this->get_logger(), "Goal was rejected by server");
+      } else {
+        RCLCPP_INFO(this->get_logger(), "Goal accepted by server, waiting for result");
+      }
+    }
+
+  void feedback_callback(GoalHandleTrajectory::SharedPtr, const std::shared_ptr<const FollowJointTrajectory::Feedback> feedback)
+  {
+    /*std::stringstream ss;
+    ss << "Next number in sequence received: ";
+    for (auto number : feedback->partial_sequence) {
+      ss << number << " ";
+    }
+    RCLCPP_INFO(this->get_logger(), ss.str().c_str());*/
+  }
+
+  void result_callback(const GoalHandleTrajectory::WrappedResult &result)
+  {
+    switch (result.code) {
+      case rclcpp_action::ResultCode::SUCCEEDED:
+        break;
+      case rclcpp_action::ResultCode::ABORTED:
+        RCLCPP_ERROR(this->get_logger(), "Goal was aborted");
+        return;
+      case rclcpp_action::ResultCode::CANCELED:
+        RCLCPP_ERROR(this->get_logger(), "Goal was canceled");
+        return;
+      default:
+        RCLCPP_ERROR(this->get_logger(), "Unknown result code");
+        return;
+    }
+    RCLCPP_INFO(this->get_logger(), "Goal reached");
+    /*std::stringstream ss;
+    ss << "Result received: ";
+    for (auto number : result.result->sequence) {
+      ss << number << " ";
+    }
+    RCLCPP_INFO(this->get_logger(), ss.str().c_str());*/
+  }
 
     void move_to_joint_state(const std::vector<double> &joint_values, double time_to_move)
     {
@@ -85,5 +160,6 @@ class JointCommandPublisher : public rclcpp::Node
     }
     rclcpp::TimerBase::SharedPtr timer_;
     rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr publisher_;
+    rclcpp_action::Client<control_msgs::action::FollowJointTrajectory>::SharedPtr client_ptr_;
     size_t count_;
 };

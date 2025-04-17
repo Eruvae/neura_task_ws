@@ -18,6 +18,7 @@
             "extensions":[
                 "ms-vscode.cpptools",
                 "ms-vscode.cpptools-themes",
+                "ms-vscode.cpptools-extension-pack",
                 "twxs.cmake",
                 "donjayamanne.python-extension-pack",
                 "eamodio.gitlens",
