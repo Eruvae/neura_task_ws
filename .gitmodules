@@ -1,0 +1,16 @@
+[submodule "src/rox"]
+	path = src/rox
+	url = https://github.com/neobotix/rox.git
+	branch = jazzy
+[submodule "src/neo_local_planner2"]
+	path = src/neo_local_planner2
+	url = https://github.com/neobotix/neo_local_planner2.git
+	branch = jazzy
+[submodule "src/neo_localization2"]
+	path = src/neo_localization2
+	url = https://github.com/neobotix/neo_localization2.git
+	branch = jazzy
+[submodule "src/neo_gz_worlds"]
+	path = src/neo_gz_worlds
+	url = https://github.com/Eruvae/neo_gz_worlds.git
+	branch = fix_wallbox

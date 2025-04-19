@@ -46,7 +46,7 @@ class JointCommandPublisher : public rclcpp::Node
       }
   
       auto goal_msg = FollowJointTrajectory::Goal();
-      goal_msg.trajectory.joint_names = {"shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint", "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"};
+      goal_msg.trajectory.joint_names = {"ur5eshoulder_pan_joint", "ur5eshoulder_lift_joint", "ur5eelbow_joint", "ur5ewrist_1_joint", "ur5ewrist_2_joint", "ur5ewrist_3_joint"};
       goal_msg.trajectory.points.resize(1);
       goal_msg.trajectory.points[0].positions = joint_values;
       goal_msg.trajectory.points[0].time_from_start = rclcpp::Duration::from_seconds(time_to_move);
@@ -106,7 +106,7 @@ class JointCommandPublisher : public rclcpp::Node
     void move_to_joint_state(const std::vector<double> &joint_values, double time_to_move)
     {
       auto message = trajectory_msgs::msg::JointTrajectory();
-      message.joint_names = {"shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint", "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"};
+      message.joint_names = {"ur5eshoulder_pan_joint", "ur5eshoulder_lift_joint", "ur5eelbow_joint", "ur5ewrist_1_joint", "ur5ewrist_2_joint", "ur5ewrist_3_joint"};
       message.points.resize(1);
       message.points[0].positions = joint_values;
       message.points[0].time_from_start = rclcpp::Duration::from_seconds(time_to_move);

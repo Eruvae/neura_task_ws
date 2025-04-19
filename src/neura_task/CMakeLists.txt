@@ -24,6 +24,13 @@ target_compile_features(neura_task_node PUBLIC c_std_99 cxx_std_17)  # Require C
 install(TARGETS neura_task_node
   DESTINATION lib/${PROJECT_NAME})
 
+ # Install launch files
+install(DIRECTORY
+  launch
+  urdf
+  DESTINATION share/${PROJECT_NAME}/
+)
+
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   # the following line skips the linter which checks for copyrights
