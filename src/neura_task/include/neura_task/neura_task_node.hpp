@@ -1,0 +1,92 @@
+#pragma once
+
+#include <chrono>
+#include <functional>
+#include <memory>
+#include <array>
+#include <string>
+
+#include "rclcpp/rclcpp.hpp"
+#include "rclcpp_action/rclcpp_action.hpp"
+#include "trajectory_msgs/msg/joint_trajectory.hpp"
+#include "control_msgs/action/follow_joint_trajectory.hpp"
+#include "geometry_msgs/msg/pose_stamped.hpp"
+#include "nav2_msgs/action/follow_waypoints.hpp"
+#include "nav2_msgs/action/follow_path.hpp"
+
+using namespace std::chrono_literals;
+using namespace std::string_view_literals;
+
+class NeuraTaskNode : public rclcpp::Node
+{
+public:
+  using FollowJointTrajectory = control_msgs::action::FollowJointTrajectory;
+  using GoalHandleTrajectory = rclcpp_action::ClientGoalHandle<FollowJointTrajectory>;
+
+  using FollowWaypoints = nav2_msgs::action::FollowWaypoints;
+  using GoalHandleWaypoints = rclcpp_action::ClientGoalHandle<FollowWaypoints>;
+
+  using FollowPath = nav2_msgs::action::FollowPath;
+  using GoalHandlePath = rclcpp_action::ClientGoalHandle<FollowPath>;
+
+  NeuraTaskNode()
+  : Node("neura_task_node"), count_(0)
+  {
+    publisher_ = this->create_publisher<trajectory_msgs::msg::JointTrajectory>("/scaled_joint_trajectory_controller/joint_trajectory", 10);
+    follow_joint_traj_client_ = rclcpp_action::create_client<FollowJointTrajectory>(this, "/scaled_joint_trajectory_controller/follow_joint_trajectory");
+    waypoint_follower_client_ = rclcpp_action::create_client<FollowWaypoints>(this, "/follow_waypoints");
+    path_follower_client_ = rclcpp_action::create_client<FollowPath>(this, "/follow_path");
+
+    std::vector<geometry_msgs::msg::PoseStamped> waypoints;
+    geometry_msgs::msg::PoseStamped center;
+    center.pose.position.x = -1.0;
+    center.pose.position.y = 1.0;
+    center.pose.position.z = 0.0;
+    center.pose.orientation.x = 0.0;
+    center.pose.orientation.y = 0.0;
+    center.pose.orientation.z = 0.0;
+    center.pose.orientation.w = 1.0;
+    waypoints = compute_circle_waypoint(center, 0.5, 32);
+    send_nav2_path(waypoints);
+
+    send_goal({0.0, 0.0, 0.0, 0.0, 0.0, 0.0}, 10);
+    //rclcpp::sleep_for(std::chrono::seconds(10));
+    //timer_ = this->create_wall_timer(
+    //1000ms, std::bind(&JointCommandPublisher::timer_callback, this));
+  }
+
+  std::vector<geometry_msgs::msg::PoseStamped> compute_circle_waypoint(geometry_msgs::msg::PoseStamped &center, double radius, size_t num_points);
+
+private:
+  rclcpp::TimerBase::SharedPtr timer_;
+  rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr publisher_;
+  rclcpp_action::Client<nav2_msgs::action::FollowWaypoints>::SharedPtr waypoint_follower_client_;
+  rclcpp_action::Client<nav2_msgs::action::FollowPath>::SharedPtr path_follower_client_;
+  rclcpp_action::Client<control_msgs::action::FollowJointTrajectory>::SharedPtr follow_joint_traj_client_;
+  size_t count_;
+
+  //static constexpr std::array<std::string_view, 6> joint_names = {"shoulder_pan_joint"sv, "shoulder_lift_joint"sv, "elbow_joint"sv, "wrist_1_joint"sv, "wrist_2_joint"sv, "wrist_3_joint"sv};
+
+  void send_nav2_path(const std::vector<geometry_msgs::msg::PoseStamped> &goal_points);
+  void path_goal_response_callback(const GoalHandlePath::SharedPtr &goal_handle);
+  void path_feedback_callback(GoalHandlePath::SharedPtr, const std::shared_ptr<const FollowPath::Feedback> feedback);
+  void path_result_callback(const GoalHandlePath::WrappedResult &result);
+
+  void send_nav2_waypoints(const std::vector<geometry_msgs::msg::PoseStamped> &goal_points);
+  void waypoint_goal_response_callback(const GoalHandleWaypoints::SharedPtr &goal_handle);
+  void waypoint_feedback_callback(GoalHandleWaypoints::SharedPtr, const std::shared_ptr<const FollowWaypoints::Feedback> feedback);
+  void waypoint_result_callback(const GoalHandleWaypoints::WrappedResult &result);
+
+  void send_goal(const std::vector<double> &joint_values, double time_to_move);
+  void joint_traj_goal_response_callback(const GoalHandleTrajectory::SharedPtr &goal_handle);
+  void joint_traj_feedback_callback(GoalHandleTrajectory::SharedPtr, const std::shared_ptr<const FollowJointTrajectory::Feedback> feedback);
+  void joint_traj_result_callback(const GoalHandleTrajectory::WrappedResult &result);
+
+  void move_to_joint_state(const std::vector<double> &joint_values, double time_to_move);
+  std::vector<trajectory_msgs::msg::JointTrajectoryPoint> test_joint_state(size_t num_joints);
+
+  // assume max/min ang around 0
+  std::vector<trajectory_msgs::msg::JointTrajectoryPoint> compute_sine_joints(double max_ang, double traj_duration, double steps, size_t num_joints);
+
+  void timer_callback();
+};
