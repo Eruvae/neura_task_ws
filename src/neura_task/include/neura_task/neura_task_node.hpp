@@ -15,6 +15,7 @@
 #include "nav2_msgs/action/navigate_through_poses.hpp"
 #include "nav2_msgs/action/follow_waypoints.hpp"
 #include "nav2_msgs/action/follow_path.hpp"
+#include "kdl_parser/kdl_parser.hpp"
 
 using namespace std::chrono_literals;
 using namespace std::string_view_literals;
@@ -109,6 +110,7 @@ private:
   //static constexpr std::array<std::string_view, 6> joint_names = {"shoulder_pan_joint"sv, "shoulder_lift_joint"sv, "elbow_joint"sv, "wrist_1_joint"sv, "wrist_2_joint"sv, "wrist_3_joint"sv};
 
   void repeat_send_path(const std::vector<geometry_msgs::msg::PoseStamped> &path_points);
+  void repeat_send_joint_trajectory(const std::vector<trajectory_msgs::msg::JointTrajectoryPoint> &joint_points);
 
   void send_nav2_path(const std::vector<geometry_msgs::msg::PoseStamped> &goal_points);
   void path_goal_response_callback(const GoalHandlePath::SharedPtr &goal_handle);

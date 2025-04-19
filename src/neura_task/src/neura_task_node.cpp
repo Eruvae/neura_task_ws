@@ -3,7 +3,7 @@
 std::vector<geometry_msgs::msg::PoseStamped> NeuraTaskNode::compute_circle_waypoint(geometry_msgs::msg::PoseStamped &center, double radius, size_t num_points)
 {
   std::vector<geometry_msgs::msg::PoseStamped> res;
-  res.resize(num_points);
+  res.resize(num_points + 1);
   for (size_t i=0; i < num_points; i++)
   {
     //double cur_frac = static_cast<double>(i) / static_cast<double>(num_points-1);
@@ -12,8 +12,8 @@ std::vector<geometry_msgs::msg::PoseStamped> NeuraTaskNode::compute_circle_waypo
     double y = center.pose.position.y + radius * sin(theta);
     double yaw = theta + M_PI / 2.0;
 
-    res[i].pose.position.x = center.pose.position.x + radius * cos(theta);
-    res[i].pose.position.y = center.pose.position.y + radius * sin(theta);
+    res[i].pose.position.x = x;
+    res[i].pose.position.y = y;
     res[i].pose.position.z = 0.0;
     //double yaw = atan2(res[i].pose.position.y - center.pose.position.y, res[i].pose.position.x - center.pose.position.x);
     res[i].pose.orientation.x = 0.0;
@@ -23,13 +23,13 @@ std::vector<geometry_msgs::msg::PoseStamped> NeuraTaskNode::compute_circle_waypo
     res[i].header.frame_id = "map";
     res[i].header.stamp = this->now();
   }
+  // add start pose at the end to complete the circle
+  res.back().pose = res[0].pose;
   return res;
 }
 
 void NeuraTaskNode::repeat_send_path(const std::vector<geometry_msgs::msg::PoseStamped> &path_points)
 {
-  using namespace std::placeholders;
-
   if (!this->path_follower_client_->wait_for_action_server()) {
     RCLCPP_ERROR(this->get_logger(), "Action server not available after waiting");
     rclcpp::shutdown();
@@ -61,6 +61,33 @@ void NeuraTaskNode::repeat_send_path(const std::vector<geometry_msgs::msg::PoseS
     repeat_send_path(path_points);
   };
   path_follower_client_->async_send_goal(path_msg, send_goal_options);
+}
+
+void NeuraTaskNode::repeat_send_joint_trajectory(const std::vector<trajectory_msgs::msg::JointTrajectoryPoint> &joint_points)
+{
+  auto joint_traj_msg = FollowJointTrajectory::Goal();
+  joint_traj_msg.trajectory.joint_names = joint_names;
+  joint_traj_msg.trajectory.points = joint_points;
+
+  auto joint_traj_goal_options = rclcpp_action::Client<FollowJointTrajectory>::SendGoalOptions();
+  joint_traj_goal_options.goal_response_callback = [this](const auto &goal_handle) {
+    if (!goal_handle) {
+      RCLCPP_ERROR(this->get_logger(), "Joint trajectory was rejected by server");
+      return;
+    } else {
+      RCLCPP_INFO(this->get_logger(), "Joint trajectory accepted by server, waiting for result");
+    }
+  };
+  joint_traj_goal_options.result_callback = [this, joint_points](const auto &result) {
+    if (result.code != rclcpp_action::ResultCode::SUCCEEDED || result.result->error_code != 0) {
+      RCLCPP_ERROR(this->get_logger(), "Joint trajectory failed: '%s'", result.result->error_string.c_str());
+      return;
+    }
+    RCLCPP_INFO(this->get_logger(), "Joint trajectory successfully executed: '%s'", result.result->error_string.c_str());
+    repeat_send_joint_trajectory(joint_points);
+  };
+
+  follow_joint_traj_client_->async_send_goal(joint_traj_msg, joint_traj_goal_options);
 }
 
 void NeuraTaskNode::send_nav2_path(const std::vector<geometry_msgs::msg::PoseStamped> &goal_points)
@@ -406,19 +433,12 @@ void NeuraTaskNode::start_task1()
     }
     RCLCPP_INFO(this->get_logger(), "Start joint configuration successfully executed: '%s'", result.result->error_string.c_str());
 
-    // TODO Move in sinus motions on reaching start positions
-    auto joint_traj_msg = FollowJointTrajectory::Goal();
-    joint_traj_msg.trajectory.joint_names = joint_names;
-    joint_traj_msg.trajectory.points = compute_sine_joints(
+    auto joint_points = compute_sine_joints(
       {M_PI / 2.0, -M_PI / 2.0,        0.0, -M_PI / 2.0,        0.0,        0.0},
       {M_PI / 4.0,  M_PI / 4.0, M_PI / 4.0,  M_PI / 4.0, M_PI / 4.0, M_PI / 4.0},
       10.0, 100);
 
-    auto joint_traj_goal_options = rclcpp_action::Client<FollowJointTrajectory>::SendGoalOptions();
-
-    follow_joint_traj_client_->async_send_goal(joint_traj_msg, joint_traj_goal_options);
-
-    // TODO repeat arm motion
+    repeat_send_joint_trajectory(joint_points);
   };
 
   follow_joint_traj_client_->async_send_goal(joint_traj_msg, joint_traj_goal_options);
