@@ -49,6 +49,16 @@ def execution_stage(context: LaunchContext,
                     'use_sim_time': 'true'
                 }.items()
         )
+    
+    rviz = IncludeLaunchDescription(
+                PythonLaunchDescriptionSource([
+                    PathJoinSubstitution([
+                        FindPackageShare('neo_nav2_bringup'),
+                        'launch',
+                        'rviz_launch.py'
+                    ])
+                ])
+        )
 
     if (rox_typ == "meca"):
         frame_typ = "long"
@@ -130,7 +140,7 @@ def execution_stage(context: LaunchContext,
         os.path.dirname(get_package_share_directory('rox_description'))
     )
 
-    launch_actions = [set_env_vars_resources, start_robot_state_publisher_cmd, gz_sim, gz_bridge, spawn_robot, navigation]
+    launch_actions = [set_env_vars_resources, start_robot_state_publisher_cmd, gz_sim, gz_bridge, spawn_robot, navigation, rviz]
 
     if arm_typ != '':
         launch_actions.append(joint_state_broadcaster_spawner)

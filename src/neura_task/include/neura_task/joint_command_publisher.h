@@ -10,6 +10,8 @@
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "trajectory_msgs/msg/joint_trajectory.hpp"
 #include "control_msgs/action/follow_joint_trajectory.hpp"
+#include "geometry_msgs/msg/pose_stamped.hpp"
+#include "nav2_msgs/action/follow_waypoints.hpp"
 
 using namespace std::chrono_literals;
 using namespace std::string_view_literals;
@@ -19,20 +21,122 @@ class JointCommandPublisher : public rclcpp::Node
   using FollowJointTrajectory = control_msgs::action::FollowJointTrajectory;
   using GoalHandleTrajectory = rclcpp_action::ClientGoalHandle<FollowJointTrajectory>;
 
+  using FollowWaypoints = nav2_msgs::action::FollowWaypoints;
+  using GoalHandleWaypoints = rclcpp_action::ClientGoalHandle<FollowWaypoints>;
+
   public:
     JointCommandPublisher()
     : Node("joint_command_publisher"), count_(0)
     {
       publisher_ = this->create_publisher<trajectory_msgs::msg::JointTrajectory>("/scaled_joint_trajectory_controller/joint_trajectory", 10);
-      client_ptr_ = rclcpp_action::create_client<FollowJointTrajectory>(this, "/scaled_joint_trajectory_controller/follow_joint_trajectory");
+      follow_joint_traj_client_ = rclcpp_action::create_client<FollowJointTrajectory>(this, "/scaled_joint_trajectory_controller/follow_joint_trajectory");
+      waypoint_follower_client_ = rclcpp_action::create_client<FollowWaypoints>(this, "/follow_waypoints");
+
+      std::vector<geometry_msgs::msg::PoseStamped> waypoints;
+      geometry_msgs::msg::PoseStamped center;
+      center.pose.position.x = -1.0;
+      center.pose.position.y = 1.0;
+      center.pose.position.z = 0.0;
+      center.pose.orientation.x = 0.0;
+      center.pose.orientation.y = 0.0;
+      center.pose.orientation.z = 0.0;
+      center.pose.orientation.w = 1.0;
+      waypoints = compute_circle_waypoint(center, 0.5, 100);
+      send_nav2_waypoints(waypoints);
+
       send_goal({0.0, 0.0, 0.0, 0.0, 0.0, 0.0}, 10);
       //rclcpp::sleep_for(std::chrono::seconds(10));
       //timer_ = this->create_wall_timer(
       //1000ms, std::bind(&JointCommandPublisher::timer_callback, this));
     }
 
+    std::vector<geometry_msgs::msg::PoseStamped> compute_circle_waypoint(geometry_msgs::msg::PoseStamped &center, double radius, size_t resoultion)
+    {
+      std::vector<geometry_msgs::msg::PoseStamped> res;
+      res.resize(resoultion);
+      for (size_t i=0; i < resoultion; i++)
+      {
+        double cur_frac = static_cast<double>(i) / static_cast<double>(resoultion-1);
+        res[i].pose.position.x = center.pose.position.x + radius * cos(cur_frac * 2 * M_PI);
+        res[i].pose.position.y = center.pose.position.y + radius * sin(cur_frac * 2 * M_PI);
+        res[i].pose.position.z = center.pose.position.z;
+        double yaw = atan2(res[i].pose.position.y - center.pose.position.y, res[i].pose.position.x - center.pose.position.x);
+        res[i].pose.orientation.x = 0.0;
+        res[i].pose.orientation.y = 0.0;
+        res[i].pose.orientation.z = sin(yaw / 2);
+        res[i].pose.orientation.w = cos(yaw / 2);
+        res[i].header.frame_id = "map";
+        res[i].header.stamp = this->now();
+      }
+      return res;
+    }
+
   private:
     //static constexpr std::array<std::string_view, 6> joint_names = {"shoulder_pan_joint"sv, "shoulder_lift_joint"sv, "elbow_joint"sv, "wrist_1_joint"sv, "wrist_2_joint"sv, "wrist_3_joint"sv};
+
+    void send_nav2_waypoints(const std::vector<geometry_msgs::msg::PoseStamped> &goal_points)
+    {
+      using namespace std::placeholders;
+  
+      if (!this->waypoint_follower_client_->wait_for_action_server()) {
+        RCLCPP_ERROR(this->get_logger(), "Action server not available after waiting");
+        rclcpp::shutdown();
+      }
+  
+      auto waypoint_msg = FollowWaypoints::Goal();
+      waypoint_msg.poses = goal_points;
+  
+      RCLCPP_INFO(this->get_logger(), "Sending waypoints");
+  
+      auto send_goal_options = rclcpp_action::Client<FollowWaypoints>::SendGoalOptions();
+      send_goal_options.goal_response_callback = std::bind(&JointCommandPublisher::waypoint_goal_response_callback, this, _1);
+      send_goal_options.feedback_callback = std::bind(&JointCommandPublisher::waypoint_feedback_callback, this, _1, _2);
+      send_goal_options.result_callback = std::bind(&JointCommandPublisher::waypoint_result_callback, this, _1);
+      this->waypoint_follower_client_->async_send_goal(waypoint_msg, send_goal_options);
+    }
+
+    void waypoint_goal_response_callback(const GoalHandleWaypoints::SharedPtr &goal_handle)
+    {
+      if (!goal_handle) {
+        RCLCPP_ERROR(this->get_logger(), "Goal was rejected by server");
+      } else {
+        RCLCPP_INFO(this->get_logger(), "Goal accepted by server, waiting for result");
+      }
+    }
+
+    void waypoint_feedback_callback(GoalHandleWaypoints::SharedPtr, const std::shared_ptr<const FollowWaypoints::Feedback> feedback)
+    {
+      /*std::stringstream ss;
+      ss << "Next number in sequence received: ";
+      for (auto number : feedback->partial_sequence) {
+        ss << number << " ";
+      }
+      RCLCPP_INFO(this->get_logger(), ss.str().c_str());*/
+    }
+
+    void waypoint_result_callback(const GoalHandleWaypoints::WrappedResult &result)
+    {
+      switch (result.code) {
+        case rclcpp_action::ResultCode::SUCCEEDED:
+          break;
+        case rclcpp_action::ResultCode::ABORTED:
+          RCLCPP_ERROR(this->get_logger(), "Goal was aborted");
+          return;
+        case rclcpp_action::ResultCode::CANCELED:
+          RCLCPP_ERROR(this->get_logger(), "Goal was canceled");
+          return;
+        default:
+          RCLCPP_ERROR(this->get_logger(), "Unknown result code");
+          return;
+      }
+      RCLCPP_INFO(this->get_logger(), "Goal reached");
+      /*std::stringstream ss;
+      ss << "Result received: ";
+      for (auto number : result.result->sequence) {
+        ss << number << " ";
+      }
+      RCLCPP_INFO(this->get_logger(), ss.str().c_str());*/
+    }
 
     void send_goal(const std::vector<double> &joint_values, double time_to_move)
     {
@@ -40,7 +144,7 @@ class JointCommandPublisher : public rclcpp::Node
   
       //this->timer_->cancel();
   
-      if (!this->client_ptr_->wait_for_action_server()) {
+      if (!this->follow_joint_traj_client_->wait_for_action_server()) {
         RCLCPP_ERROR(this->get_logger(), "Action server not available after waiting");
         rclcpp::shutdown();
       }
@@ -54,13 +158,13 @@ class JointCommandPublisher : public rclcpp::Node
       RCLCPP_INFO(this->get_logger(), "Sending goal");
   
       auto send_goal_options = rclcpp_action::Client<FollowJointTrajectory>::SendGoalOptions();
-      send_goal_options.goal_response_callback = std::bind(&JointCommandPublisher::goal_response_callback, this, _1);
-      send_goal_options.feedback_callback = std::bind(&JointCommandPublisher::feedback_callback, this, _1, _2);
-      send_goal_options.result_callback = std::bind(&JointCommandPublisher::result_callback, this, _1);
-      this->client_ptr_->async_send_goal(goal_msg, send_goal_options);
+      send_goal_options.goal_response_callback = std::bind(&JointCommandPublisher::joint_traj_goal_response_callback, this, _1);
+      send_goal_options.feedback_callback = std::bind(&JointCommandPublisher::joint_traj_feedback_callback, this, _1, _2);
+      send_goal_options.result_callback = std::bind(&JointCommandPublisher::joint_traj_result_callback, this, _1);
+      this->follow_joint_traj_client_->async_send_goal(goal_msg, send_goal_options);
     }
 
-    void goal_response_callback(const GoalHandleTrajectory::SharedPtr &goal_handle)
+    void joint_traj_goal_response_callback(const GoalHandleTrajectory::SharedPtr &goal_handle)
     {
       if (!goal_handle) {
         RCLCPP_ERROR(this->get_logger(), "Goal was rejected by server");
@@ -69,7 +173,7 @@ class JointCommandPublisher : public rclcpp::Node
       }
     }
 
-  void feedback_callback(GoalHandleTrajectory::SharedPtr, const std::shared_ptr<const FollowJointTrajectory::Feedback> feedback)
+  void joint_traj_feedback_callback(GoalHandleTrajectory::SharedPtr, const std::shared_ptr<const FollowJointTrajectory::Feedback> feedback)
   {
     /*std::stringstream ss;
     ss << "Next number in sequence received: ";
@@ -79,7 +183,7 @@ class JointCommandPublisher : public rclcpp::Node
     RCLCPP_INFO(this->get_logger(), ss.str().c_str());*/
   }
 
-  void result_callback(const GoalHandleTrajectory::WrappedResult &result)
+  void joint_traj_result_callback(const GoalHandleTrajectory::WrappedResult &result)
   {
     switch (result.code) {
       case rclcpp_action::ResultCode::SUCCEEDED:
@@ -160,6 +264,7 @@ class JointCommandPublisher : public rclcpp::Node
     }
     rclcpp::TimerBase::SharedPtr timer_;
     rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr publisher_;
-    rclcpp_action::Client<control_msgs::action::FollowJointTrajectory>::SharedPtr client_ptr_;
+    rclcpp_action::Client<nav2_msgs::action::FollowWaypoints>::SharedPtr waypoint_follower_client_;
+    rclcpp_action::Client<control_msgs::action::FollowJointTrajectory>::SharedPtr follow_joint_traj_client_;
     size_t count_;
 };
