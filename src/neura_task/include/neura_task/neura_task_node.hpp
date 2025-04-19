@@ -11,6 +11,8 @@
 #include "trajectory_msgs/msg/joint_trajectory.hpp"
 #include "control_msgs/action/follow_joint_trajectory.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
+#include "nav2_msgs/action/navigate_to_pose.hpp"
+#include "nav2_msgs/action/navigate_through_poses.hpp"
 #include "nav2_msgs/action/follow_waypoints.hpp"
 #include "nav2_msgs/action/follow_path.hpp"
 
@@ -29,6 +31,12 @@ public:
   using FollowPath = nav2_msgs::action::FollowPath;
   using GoalHandlePath = rclcpp_action::ClientGoalHandle<FollowPath>;
 
+  using NavigateToPose = nav2_msgs::action::NavigateToPose;
+  using GoalHandleNavigateToPose = rclcpp_action::ClientGoalHandle<NavigateToPose>;
+
+  using NavigateThroughPoses = nav2_msgs::action::NavigateThroughPoses;
+  using GoalHandleNavigateThroughPoses = rclcpp_action::ClientGoalHandle<NavigateThroughPoses>;
+
   NeuraTaskNode()
   : Node("neura_task_node"), count_(0)
   {
@@ -36,32 +44,40 @@ public:
     follow_joint_traj_client_ = rclcpp_action::create_client<FollowJointTrajectory>(this, "/scaled_joint_trajectory_controller/follow_joint_trajectory");
     waypoint_follower_client_ = rclcpp_action::create_client<FollowWaypoints>(this, "/follow_waypoints");
     path_follower_client_ = rclcpp_action::create_client<FollowPath>(this, "/follow_path");
+    navigate_to_pose_client_ = rclcpp_action::create_client<NavigateToPose>(this, "/navigate_to_pose");
+    navigate_through_poses_client_ = rclcpp_action::create_client<NavigateThroughPoses>(this, "/navigate_through_poses");
 
-    std::vector<geometry_msgs::msg::PoseStamped> waypoints;
+    start_task1();
+
+    /*std::vector<geometry_msgs::msg::PoseStamped> waypoints;
     geometry_msgs::msg::PoseStamped center;
     center.pose.position.x = -1.0;
-    center.pose.position.y = 1.0;
+    center.pose.position.y = 0.5;
     center.pose.position.z = 0.0;
     center.pose.orientation.x = 0.0;
     center.pose.orientation.y = 0.0;
     center.pose.orientation.z = 0.0;
     center.pose.orientation.w = 1.0;
-    waypoints = compute_circle_waypoint(center, 0.5, 32);
-    send_nav2_path(waypoints);
+    waypoints = compute_circle_waypoint(center, 0.75, 16);
+    send_nav2_waypoints(waypoints);*/
 
-    send_goal({0.0, 0.0, 0.0, 0.0, 0.0, 0.0}, 10);
+    //send_goal({0.0, 0.0, 0.0, 0.0, 0.0, 0.0}, 10);
     //rclcpp::sleep_for(std::chrono::seconds(10));
     //timer_ = this->create_wall_timer(
-    //1000ms, std::bind(&JointCommandPublisher::timer_callback, this));
+    //1000ms, std::bind(&NeuraTaskNode::timer_callback, this));
   }
 
   std::vector<geometry_msgs::msg::PoseStamped> compute_circle_waypoint(geometry_msgs::msg::PoseStamped &center, double radius, size_t num_points);
+
+  void start_task1();
 
 private:
   rclcpp::TimerBase::SharedPtr timer_;
   rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr publisher_;
   rclcpp_action::Client<nav2_msgs::action::FollowWaypoints>::SharedPtr waypoint_follower_client_;
   rclcpp_action::Client<nav2_msgs::action::FollowPath>::SharedPtr path_follower_client_;
+  rclcpp_action::Client<nav2_msgs::action::NavigateToPose>::SharedPtr navigate_to_pose_client_;
+  rclcpp_action::Client<nav2_msgs::action::NavigateThroughPoses>::SharedPtr navigate_through_poses_client_;
   rclcpp_action::Client<control_msgs::action::FollowJointTrajectory>::SharedPtr follow_joint_traj_client_;
   size_t count_;
 

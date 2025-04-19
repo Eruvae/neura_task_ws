@@ -7,7 +7,7 @@ std::vector<geometry_msgs::msg::PoseStamped> NeuraTaskNode::compute_circle_waypo
   for (size_t i=0; i < num_points; i++)
   {
     //double cur_frac = static_cast<double>(i) / static_cast<double>(num_points-1);
-    double theta = 2.0 * M_PI * i / num_points;
+    double theta = 2.0 * M_PI * static_cast<double>(i) / static_cast<double>(num_points);
     double x = center.pose.position.x + radius * cos(theta);
     double y = center.pose.position.y + radius * sin(theta);
     double yaw = theta + M_PI / 2.0;
@@ -52,9 +52,9 @@ void NeuraTaskNode::send_nav2_path(const std::vector<geometry_msgs::msg::PoseSta
 void NeuraTaskNode::path_goal_response_callback(const GoalHandlePath::SharedPtr &goal_handle)
 {
   if (!goal_handle) {
-    RCLCPP_ERROR(this->get_logger(), "Goal was rejected by server");
+    RCLCPP_ERROR(this->get_logger(), "Path was rejected by server");
   } else {
-    RCLCPP_INFO(this->get_logger(), "Goal accepted by server, waiting for result");
+    RCLCPP_INFO(this->get_logger(), "Path accepted by server, waiting for result");
   }
 }
 
@@ -74,16 +74,21 @@ void NeuraTaskNode::path_result_callback(const GoalHandlePath::WrappedResult &re
     case rclcpp_action::ResultCode::SUCCEEDED:
       break;
     case rclcpp_action::ResultCode::ABORTED:
-      RCLCPP_ERROR(this->get_logger(), "Goal was aborted");
+      RCLCPP_ERROR(this->get_logger(), "Path was aborted: '%s'", result.result->error_msg.c_str());
       return;
     case rclcpp_action::ResultCode::CANCELED:
-      RCLCPP_ERROR(this->get_logger(), "Goal was canceled");
+      RCLCPP_ERROR(this->get_logger(), "Path was canceled '%s'", result.result->error_msg.c_str());
       return;
     default:
       RCLCPP_ERROR(this->get_logger(), "Unknown result code");
       return;
   }
-  RCLCPP_INFO(this->get_logger(), "Goal reached");
+
+  if (result.result->error_code != 0) {
+    RCLCPP_ERROR(this->get_logger(), "Path failed: '%s'", result.result->error_msg.c_str());
+    return;
+  }
+  RCLCPP_INFO(this->get_logger(), "Path successfully executed: '%s'", result.result->error_msg.c_str());
   /*std::stringstream ss;
   ss << "Result received: ";
   for (auto number : result.result->sequence) {
@@ -281,4 +286,52 @@ void NeuraTaskNode::timer_callback()
   //message.data = "Hello, world! " + std::to_string(count_++);
   //RCLCPP_INFO(this->get_logger(), "Publishing: '%s'", message.data.c_str());
   publisher_->publish(message);*/
+}
+
+void NeuraTaskNode::start_task1()
+{
+  // move robot to start position
+  using namespace std::placeholders;
+
+  std::vector<geometry_msgs::msg::PoseStamped> waypoints;
+  geometry_msgs::msg::PoseStamped center;
+  center.pose.position.x = -1.0;
+  center.pose.position.y = 0.5;
+  center.pose.position.z = 0.0;
+  center.pose.orientation.x = 0.0;
+  center.pose.orientation.y = 0.0;
+  center.pose.orientation.z = 0.0;
+  center.pose.orientation.w = 1.0;
+  waypoints = compute_circle_waypoint(center, 0.75, 16);
+
+  auto start_pose = waypoints[0];
+
+  auto move_msg = NavigateToPose::Goal();
+  move_msg.pose.header.frame_id = "map";
+  move_msg.pose.header.stamp = this->now();
+  move_msg.pose.pose = start_pose.pose;
+
+  RCLCPP_INFO(this->get_logger(), "Move to start position");
+
+  auto send_goal_options = rclcpp_action::Client<NavigateToPose>::SendGoalOptions();
+  send_goal_options.goal_response_callback = [this](const auto &goal_handle) {
+    if (!goal_handle) {
+      RCLCPP_ERROR(this->get_logger(), "Start pose was rejected by server");
+      return;
+    } else {
+      RCLCPP_INFO(this->get_logger(), "Start pose accepted by server, waiting for result");
+    }
+  };
+  send_goal_options.result_callback = [this, waypoints](const auto &result) {
+    if (result.code != rclcpp_action::ResultCode::SUCCEEDED || result.result->error_code != 0) {
+      RCLCPP_ERROR(this->get_logger(), "Start pose navigation failed: '%s'", result.result->error_msg.c_str());
+      return;
+    }
+
+    // Move on path along waypoints
+    send_nav2_path(waypoints);
+  };
+
+  this->navigate_to_pose_client_->async_send_goal(move_msg, send_goal_options);
+
 }
