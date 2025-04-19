@@ -210,7 +210,7 @@ void NeuraTaskNode::send_goal(const std::vector<double> &joint_values, double ti
   }
 
   auto goal_msg = FollowJointTrajectory::Goal();
-  goal_msg.trajectory.joint_names = {"ur5eshoulder_pan_joint", "ur5eshoulder_lift_joint", "ur5eelbow_joint", "ur5ewrist_1_joint", "ur5ewrist_2_joint", "ur5ewrist_3_joint"};
+  goal_msg.trajectory.joint_names = joint_names;
   goal_msg.trajectory.points.resize(1);
   goal_msg.trajectory.points[0].positions = joint_values;
   goal_msg.trajectory.points[0].time_from_start = rclcpp::Duration::from_seconds(time_to_move);
@@ -270,7 +270,7 @@ void NeuraTaskNode::joint_traj_result_callback(const GoalHandleTrajectory::Wrapp
 void NeuraTaskNode::move_to_joint_state(const std::vector<double> &joint_values, double time_to_move)
 {
   auto message = trajectory_msgs::msg::JointTrajectory();
-  message.joint_names = {"ur5eshoulder_pan_joint", "ur5eshoulder_lift_joint", "ur5eelbow_joint", "ur5ewrist_1_joint", "ur5ewrist_2_joint", "ur5ewrist_3_joint"};
+  message.joint_names = joint_names;
   message.points.resize(1);
   message.points[0].positions = joint_values;
   message.points[0].time_from_start = rclcpp::Duration::from_seconds(time_to_move);
@@ -288,16 +288,25 @@ std::vector<trajectory_msgs::msg::JointTrajectoryPoint> NeuraTaskNode::test_join
 }
 
 // assume max/min ang around 0
-std::vector<trajectory_msgs::msg::JointTrajectoryPoint> NeuraTaskNode::compute_sine_joints(double max_ang, double traj_duration, double steps, size_t num_joints)
+std::vector<trajectory_msgs::msg::JointTrajectoryPoint> NeuraTaskNode::compute_sine_joints(std::vector<double> mid_values, std::vector<double> range, double traj_duration, double steps)
 {
+  if (mid_values.size() != range.size())
+  {
+    RCLCPP_ERROR(this->get_logger(), "Mid values and range size mismatch");
+    return {};
+  }
   std::vector<trajectory_msgs::msg::JointTrajectoryPoint> res;
+  size_t num_joints = mid_values.size();
   res.resize(steps);
   for (size_t i=0; i < steps; i++)
   {
     res[i].positions.resize(num_joints);
     double cur_frac = static_cast<double>(i) / static_cast<double>(steps-1);
-    res[i].positions[0] = max_ang * sin(cur_frac * 2 * M_PI);
-    RCLCPP_INFO(this->get_logger(), "Frac: '%f', Pos: '%f'", cur_frac, res[i].positions[0]);
+    for (size_t j=0; j < num_joints; j++)
+    {
+      res[i].positions[j] = mid_values[j] + range[j] * sin(cur_frac * 2 * M_PI);
+      //RCLCPP_INFO(this->get_logger(), "Frac: '%f', Pos: '%f'", cur_frac, res[i].positions[j]);
+    }
     res[i].time_from_start = rclcpp::Duration::from_seconds(traj_duration * cur_frac);
   }
   return res;
@@ -317,7 +326,7 @@ void NeuraTaskNode::main_loop_callback()
   /*double TRAJ_DURATION = 10.0;
   size_t STEPS = 100;
   auto message = trajectory_msgs::msg::JointTrajectory();
-  message.joint_names = {"shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint", "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"};
+  message.joint_names = joint_names;
   message.points = compute_sine_joints(MAX_ANG, TRAJ_DURATION, STEPS, 6);
   //message.points = test_joint_state(6);
   //message.data = "Hello, world! " + std::to_string(count_++);
@@ -365,10 +374,53 @@ void NeuraTaskNode::start_task1()
       return;
     }
 
-    // Move on path along waypoints
+    // Move on path along waypoints in circle
     repeat_send_path(waypoints);
   };
 
   this->navigate_to_pose_client_->async_send_goal(move_msg, send_goal_options);
+
+  // move arm to start joint state (pi/2, -pi/2, 0, -pi/2, 0, 0)
+  auto joint_traj_msg = FollowJointTrajectory::Goal();
+  joint_traj_msg.trajectory.joint_names = joint_names;
+  joint_traj_msg.trajectory.points.resize(1);
+  joint_traj_msg.trajectory.points[0].positions = {M_PI / 2.0, -M_PI / 2.0, 0.0, -M_PI / 2.0, 0.0, 0.0};
+  double time_to_move = 5.0;
+  joint_traj_msg.trajectory.points[0].time_from_start = rclcpp::Duration::from_seconds(time_to_move);
+
+  RCLCPP_INFO(this->get_logger(), "Moving arm joints to start position");
+
+  auto joint_traj_goal_options = rclcpp_action::Client<FollowJointTrajectory>::SendGoalOptions();
+  joint_traj_goal_options.goal_response_callback = [this](const auto &goal_handle) {
+    if (!goal_handle) {
+      RCLCPP_ERROR(this->get_logger(), "Start joint configuration was rejected by server");
+      return;
+    } else {
+      RCLCPP_INFO(this->get_logger(), "Start joint configuration accepted by server, waiting for result");
+    }
+  };
+  joint_traj_goal_options.result_callback = [this](const auto &result) {
+    if (result.code != rclcpp_action::ResultCode::SUCCEEDED || result.result->error_code != 0) {
+      RCLCPP_ERROR(this->get_logger(), "Start joint configuration failed: '%s'", result.result->error_string.c_str());
+      return;
+    }
+    RCLCPP_INFO(this->get_logger(), "Start joint configuration successfully executed: '%s'", result.result->error_string.c_str());
+
+    // TODO Move in sinus motions on reaching start positions
+    auto joint_traj_msg = FollowJointTrajectory::Goal();
+    joint_traj_msg.trajectory.joint_names = joint_names;
+    joint_traj_msg.trajectory.points = compute_sine_joints(
+      {M_PI / 2.0, -M_PI / 2.0,        0.0, -M_PI / 2.0,        0.0,        0.0},
+      {M_PI / 4.0,  M_PI / 4.0, M_PI / 4.0,  M_PI / 4.0, M_PI / 4.0, M_PI / 4.0},
+      10.0, 100);
+
+    auto joint_traj_goal_options = rclcpp_action::Client<FollowJointTrajectory>::SendGoalOptions();
+
+    follow_joint_traj_client_->async_send_goal(joint_traj_msg, joint_traj_goal_options);
+
+    // TODO repeat arm motion
+  };
+
+  follow_joint_traj_client_->async_send_goal(joint_traj_msg, joint_traj_goal_options);
 
 }

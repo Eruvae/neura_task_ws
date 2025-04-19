@@ -104,6 +104,8 @@ private:
   rclcpp_action::Client<control_msgs::action::FollowJointTrajectory>::SharedPtr follow_joint_traj_client_;
   size_t count_;
 
+  const std::vector<std::string> joint_names = {"ur5eshoulder_pan_joint", "ur5eshoulder_lift_joint", "ur5eelbow_joint", "ur5ewrist_1_joint", "ur5ewrist_2_joint", "ur5ewrist_3_joint"};
+
   //static constexpr std::array<std::string_view, 6> joint_names = {"shoulder_pan_joint"sv, "shoulder_lift_joint"sv, "elbow_joint"sv, "wrist_1_joint"sv, "wrist_2_joint"sv, "wrist_3_joint"sv};
 
   void repeat_send_path(const std::vector<geometry_msgs::msg::PoseStamped> &path_points);
@@ -127,7 +129,7 @@ private:
   std::vector<trajectory_msgs::msg::JointTrajectoryPoint> test_joint_state(size_t num_joints);
 
   // assume max/min ang around 0
-  std::vector<trajectory_msgs::msg::JointTrajectoryPoint> compute_sine_joints(double max_ang, double traj_duration, double steps, size_t num_joints);
+  std::vector<trajectory_msgs::msg::JointTrajectoryPoint> compute_sine_joints(std::vector<double> mid_values, std::vector<double> range, double traj_duration, double steps);
 
   void main_loop_callback();
 };
