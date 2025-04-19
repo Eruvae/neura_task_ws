@@ -26,6 +26,43 @@ std::vector<geometry_msgs::msg::PoseStamped> NeuraTaskNode::compute_circle_waypo
   return res;
 }
 
+void NeuraTaskNode::repeat_send_path(const std::vector<geometry_msgs::msg::PoseStamped> &path_points)
+{
+  using namespace std::placeholders;
+
+  if (!this->path_follower_client_->wait_for_action_server()) {
+    RCLCPP_ERROR(this->get_logger(), "Action server not available after waiting");
+    rclcpp::shutdown();
+  }
+
+  auto path_msg = FollowPath::Goal();
+  path_msg.path.header.frame_id = "map";
+  path_msg.path.header.stamp = this->now();
+  path_msg.path.poses = path_points;
+
+  RCLCPP_INFO(this->get_logger(), "Executing path");
+
+  auto send_goal_options = rclcpp_action::Client<FollowPath>::SendGoalOptions();
+  send_goal_options.goal_response_callback = [this](const auto &goal_handle) {
+    if (!goal_handle) {
+      RCLCPP_ERROR(this->get_logger(), "Follow path was rejected by server");
+      return;
+    } else {
+      RCLCPP_INFO(this->get_logger(), "Follow path accepted by server, waiting for result");
+    }
+  };
+  send_goal_options.result_callback = [this, path_points](const auto &result) {
+    if (result.code != rclcpp_action::ResultCode::SUCCEEDED || result.result->error_code != 0) {
+      RCLCPP_ERROR(this->get_logger(), "Follow path failed: '%s'", result.result->error_msg.c_str());
+      return;
+    }
+
+    // Execute the path again
+    repeat_send_path(path_points);
+  };
+  path_follower_client_->async_send_goal(path_msg, send_goal_options);
+}
+
 void NeuraTaskNode::send_nav2_path(const std::vector<geometry_msgs::msg::PoseStamped> &goal_points)
 {
   using namespace std::placeholders;
@@ -266,17 +303,17 @@ std::vector<trajectory_msgs::msg::JointTrajectoryPoint> NeuraTaskNode::compute_s
   return res;
 }
 
-void NeuraTaskNode::timer_callback()
+void NeuraTaskNode::main_loop_callback()
 {
-  constexpr double MAX_ANG = M_PI;
+  /*constexpr double MAX_ANG = M_PI;
   static size_t cur_step = 0;
   constexpr size_t MAX_STEP = 10;
   std::vector<double> joint_states(6);
   double cur_frac = static_cast<double>(cur_step+1) / static_cast<double>(MAX_STEP);
   joint_states[0] = MAX_ANG * sin(cur_frac * 2 * M_PI);
-  move_to_joint_state(joint_states, 1);
+  move_to_joint_state(joint_states, 1);*/
 
-  timer_->cancel();
+  main_loop_timer_->cancel();
   /*double TRAJ_DURATION = 10.0;
   size_t STEPS = 100;
   auto message = trajectory_msgs::msg::JointTrajectory();
@@ -329,7 +366,7 @@ void NeuraTaskNode::start_task1()
     }
 
     // Move on path along waypoints
-    send_nav2_path(waypoints);
+    repeat_send_path(waypoints);
   };
 
   this->navigate_to_pose_client_->async_send_goal(move_msg, send_goal_options);

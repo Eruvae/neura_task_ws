@@ -47,6 +47,29 @@ public:
     navigate_to_pose_client_ = rclcpp_action::create_client<NavigateToPose>(this, "/navigate_to_pose");
     navigate_through_poses_client_ = rclcpp_action::create_client<NavigateThroughPoses>(this, "/navigate_through_poses");
 
+    if (!follow_joint_traj_client_->wait_for_action_server()) {
+      RCLCPP_ERROR(this->get_logger(), "Follow joint trajectory action server not available after waiting");
+      rclcpp::shutdown();
+    }
+    if (!waypoint_follower_client_->wait_for_action_server()) {
+      RCLCPP_ERROR(this->get_logger(), "Follow waypoints action server not available after waiting");
+      rclcpp::shutdown();
+    }
+    if (!path_follower_client_->wait_for_action_server()) {
+      RCLCPP_ERROR(this->get_logger(), "Follow path action server not available after waiting");
+      rclcpp::shutdown();
+    }
+    if (!navigate_to_pose_client_->wait_for_action_server()) {
+      RCLCPP_ERROR(this->get_logger(), "Navigate to pose action server not available after waiting");
+      rclcpp::shutdown();
+    }
+    if (!navigate_through_poses_client_->wait_for_action_server()) {
+      RCLCPP_ERROR(this->get_logger(), "Navigate through poses action server not available after waiting");
+      rclcpp::shutdown();
+    }
+
+    //main_loop_timer_ = this->create_wall_timer(100ms, std::bind(&NeuraTaskNode::main_loop_callback, this));
+
     start_task1();
 
     /*std::vector<geometry_msgs::msg::PoseStamped> waypoints;
@@ -72,7 +95,7 @@ public:
   void start_task1();
 
 private:
-  rclcpp::TimerBase::SharedPtr timer_;
+  rclcpp::TimerBase::SharedPtr main_loop_timer_;
   rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr publisher_;
   rclcpp_action::Client<nav2_msgs::action::FollowWaypoints>::SharedPtr waypoint_follower_client_;
   rclcpp_action::Client<nav2_msgs::action::FollowPath>::SharedPtr path_follower_client_;
@@ -82,6 +105,8 @@ private:
   size_t count_;
 
   //static constexpr std::array<std::string_view, 6> joint_names = {"shoulder_pan_joint"sv, "shoulder_lift_joint"sv, "elbow_joint"sv, "wrist_1_joint"sv, "wrist_2_joint"sv, "wrist_3_joint"sv};
+
+  void repeat_send_path(const std::vector<geometry_msgs::msg::PoseStamped> &path_points);
 
   void send_nav2_path(const std::vector<geometry_msgs::msg::PoseStamped> &goal_points);
   void path_goal_response_callback(const GoalHandlePath::SharedPtr &goal_handle);
@@ -104,5 +129,5 @@ private:
   // assume max/min ang around 0
   std::vector<trajectory_msgs::msg::JointTrajectoryPoint> compute_sine_joints(double max_ang, double traj_duration, double steps, size_t num_joints);
 
-  void timer_callback();
+  void main_loop_callback();
 };
