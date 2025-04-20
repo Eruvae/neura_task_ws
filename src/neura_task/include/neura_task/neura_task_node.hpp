@@ -66,6 +66,18 @@ public:
     declare_parameter("sine_joint_traj_duration", 10.0);
     declare_parameter("sine_joint_traj_steps", 100);
 
+    // Task 2a parameters
+    declare_parameter("task2a_start_pose", std::vector<double>{0.820, -0.375, 1.108, -0.460, 0.707, -0.458, 0.279});
+    declare_parameter("task2a_end_pose", std::vector<double>{0.112, -0.701, 1.117 -0.009, 0.826, -0.563, -0.009});
+    declare_parameter("task2a_linear_velocity", 0.1);
+    declare_parameter("task2a_linear_acceleration", 0.1);
+    declare_parameter("task2a_step_size", 0.01);
+
+    // Task 2b parameters
+    declare_parameter("task2b_base_move_type", "circle"); // use same parameters as task 1 for circle
+    declare_parameter("task2b_endeffector_pose", std::vector<double>{-1.0, 0.5, 1.0, 0.0, 0.0, 0.0, 1.0});
+
+
     using std::placeholders::_1;
 
     tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());

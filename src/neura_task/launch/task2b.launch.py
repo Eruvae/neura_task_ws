@@ -11,7 +11,10 @@ def generate_launch_description():
             executable='neura_task_node',
             name='neura_task_node',
             parameters=[
-                {"task": "task2b"}
+                {"use_sim_time": True},
+                {"task": "task2b"},
+                {"task2b_base_move_type": "circle"},
+                {"task2b_endeffector_pose": [-1.0, 0.5, 1.0, 0.0, 0.0, 0.0, 1.0]}
             ])
 
     return LaunchDescription([

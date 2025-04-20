@@ -246,30 +246,50 @@ void NeuraTaskNode::execute_computed_path(const std::vector<trajectory_msgs::msg
 
 void NeuraTaskNode::start_task2a()
 {
-  // TODO: dynamically get poses from ros params
-  // TODO: transform poses to base_link frame
   // TODO: move base in best position to reach both poses
 
-  geometry_msgs::msg::Pose start_pose;
-  start_pose.position.x = 0.757;
-  start_pose.position.y = 0.135;
-  start_pose.position.z = 1.288;
-  start_pose.orientation.x = 0.864;
-  start_pose.orientation.y = 0.371;
-  start_pose.orientation.z = -0.100;
-  start_pose.orientation.w = -0.325;
+  geometry_msgs::msg::TransformStamped base_link_transform;
+  std::string to_frame = "base_link";
+  std::string from_frame = "map";
+  try {
+    base_link_transform = tf_buffer_->lookupTransform(to_frame, from_frame, tf2::TimePointZero);
+  }
+  catch (const tf2::TransformException & ex) {
+    RCLCPP_INFO(this->get_logger(), "Could not transform %s to %s: %s", to_frame.c_str(), from_frame.c_str(), ex.what());
+    return;
+  }
 
+  auto start_pose_vec = get_parameter("task2a_start_pose").as_double_array();
+  geometry_msgs::msg::Pose start_pose;
+  start_pose.position.x = start_pose_vec[0];
+  start_pose.position.y = start_pose_vec[1];
+  start_pose.position.z = start_pose_vec[2];
+  start_pose.orientation.x = start_pose_vec[3];
+  start_pose.orientation.y = start_pose_vec[4];
+  start_pose.orientation.z = start_pose_vec[5];
+  start_pose.orientation.w = start_pose_vec[6];
+
+  auto end_pose_vec = get_parameter("task2a_end_pose").as_double_array();
   geometry_msgs::msg::Pose end_pose;
-  end_pose.position.x = 0.106;
-  end_pose.position.y = 0.258;
-  end_pose.position.z = 1.763;
-  end_pose.orientation.x = -0.655;
-  end_pose.orientation.y = 0.268;
-  end_pose.orientation.z = 0.133;
-  end_pose.orientation.w = 0.693;
+  end_pose.position.x = end_pose_vec[0];
+  end_pose.position.y = end_pose_vec[1];
+  end_pose.position.z = end_pose_vec[2];
+  end_pose.orientation.x = end_pose_vec[3];
+  end_pose.orientation.y = end_pose_vec[4];
+  end_pose.orientation.z = end_pose_vec[5];
+  end_pose.orientation.w = end_pose_vec[6];
+
+  double linear_velocity = get_parameter("task2a_linear_velocity").as_double();
+  double linear_acceleration = get_parameter("task2a_linear_acceleration").as_double();
+  double step_size = get_parameter("task2a_step_size").as_double();
+
+  geometry_msgs::msg::Pose start_pose_base_link;
+  tf2::doTransform(start_pose, start_pose_base_link, base_link_transform);
+  geometry_msgs::msg::Pose end_pose_base_link;
+  tf2::doTransform(end_pose, end_pose_base_link, base_link_transform);
 
   // compute cartesian path
-  auto cartesian_path = compute_cartesian_path(start_pose, end_pose, 0.1, 0.1, 0.01);
+  auto cartesian_path = compute_cartesian_path(start_pose_base_link, end_pose_base_link, linear_velocity, linear_acceleration, step_size);
   if (cartesian_path.empty()) {
     RCLCPP_ERROR(this->get_logger(), "Failed to compute cartesian path");
     return;
@@ -364,20 +384,31 @@ void NeuraTaskNode::compute_and_move_to_cartesian_pose(const geometry_msgs::msg:
 void NeuraTaskNode::start_task2b()
 {
   // Move in the circle from task 1
-  compute_and_move_in_circle();
+  std::string base_motion_type = get_parameter("task2b_base_move_type").as_string();
+  
+  if (base_motion_type == "circle") {
+    RCLCPP_INFO(this->get_logger(), "Moving base in circle");
+    compute_and_move_in_circle();
+  }
+  else {
+    RCLCPP_ERROR(this->get_logger(), "Unknown base motion type: '%s'", base_motion_type.c_str());
+    return;
+  }
 
-  // Keep arm endeffector in the middle of the circle
-  geometry_msgs::msg::Pose middle_pose;
-  middle_pose.position.x = -1.0;
-  middle_pose.position.y = 0.5;
-  middle_pose.position.z = 1.0;
-  middle_pose.orientation.x = 0.0;
-  middle_pose.orientation.y = 0.0;
-  middle_pose.orientation.z = 0.0;
-  middle_pose.orientation.w = 1.0;
+  auto ee_pose_vec = get_parameter("task2b_endeffector_pose").as_double_array();
 
-  task_retry_timer_ = create_wall_timer(100ms, [this, middle_pose]() {
-    this->compute_and_move_to_cartesian_pose(middle_pose);
+  // Read desired end effector pose
+  geometry_msgs::msg::Pose ee_pose;
+  ee_pose.position.x = ee_pose_vec[0];
+  ee_pose.position.y = ee_pose_vec[1];
+  ee_pose.position.z = ee_pose_vec[2];
+  ee_pose.orientation.x = ee_pose_vec[3];
+  ee_pose.orientation.y = ee_pose_vec[4];
+  ee_pose.orientation.z = ee_pose_vec[5];
+  ee_pose.orientation.w = ee_pose_vec[6];
+
+  task_retry_timer_ = create_wall_timer(100ms, [this, ee_pose]() {
+    this->compute_and_move_to_cartesian_pose(ee_pose);
   });
 }
 
