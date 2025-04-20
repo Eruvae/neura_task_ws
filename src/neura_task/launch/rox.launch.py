@@ -50,15 +50,16 @@ def execution_stage(context: LaunchContext,
                 }.items()
         )
     
-    rviz = IncludeLaunchDescription(
-                PythonLaunchDescriptionSource([
-                    PathJoinSubstitution([
-                        FindPackageShare('neo_nav2_bringup'),
-                        'launch',
-                        'rviz_launch.py'
+    rviz = Node(
+            package='rviz2',
+            executable='rviz2',
+            name='rviz2',
+            arguments=['-d', PathJoinSubstitution([
+                        FindPackageShare('neura_task'),
+                        'rviz',
+                        'neura_task.rviz'
                     ])
-                ])
-        )
+            ])
 
     if (rox_typ == "meca"):
         frame_typ = "long"

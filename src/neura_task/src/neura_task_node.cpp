@@ -1,4 +1,5 @@
 #include "neura_task/neura_task_node.hpp"
+#include "neura_task/conversions.hpp"
 
 #include "kdl/rotational_interpolation_sa.hpp"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
@@ -90,16 +91,6 @@ void NeuraTaskNode::repeat_send_joint_trajectory(const std::vector<trajectory_ms
   };
 
   follow_joint_traj_client_->async_send_goal(joint_traj_msg, joint_traj_goal_options);
-}
-
-void NeuraTaskNode::move_to_joint_state(const std::vector<double> &joint_values, double time_to_move)
-{
-  auto message = trajectory_msgs::msg::JointTrajectory();
-  message.joint_names = joint_names;
-  message.points.resize(1);
-  message.points[0].positions = joint_values;
-  message.points[0].time_from_start = rclcpp::Duration::from_seconds(time_to_move);
-  publisher_->publish(message);
 }
 
 std::vector<trajectory_msgs::msg::JointTrajectoryPoint> NeuraTaskNode::test_joint_state(size_t num_joints)
@@ -537,6 +528,10 @@ void NeuraTaskNode::compute_and_move_in_circle()
   center.pose.orientation.z = 0.0;
   center.pose.orientation.w = 1.0;
   waypoints = compute_circle_waypoint(center, get_parameter("circle_radius").as_double(), static_cast<size_t>(get_parameter("circle_num_points").as_int()));
+
+  // visualize waypoints
+  visual_tools_->publishPath(convert_pose_stamped_to_pose(waypoints), rviz_visual_tools::GREEN);
+  visual_tools_->trigger();
 
   auto start_pose = waypoints[0];
 

@@ -21,6 +21,7 @@
 #include "tf2/exceptions.h"
 #include "tf2_ros/transform_listener.h"
 #include "tf2_ros/buffer.h"
+#include "rviz_visual_tools/rviz_visual_tools.hpp"
 
 using namespace std::chrono_literals;
 using namespace std::string_view_literals;
@@ -77,13 +78,13 @@ public:
     declare_parameter("task2b_base_move_type", "circle"); // use same parameters as task 1 for circle
     declare_parameter("task2b_endeffector_pose", std::vector<double>{-1.0, 0.5, 1.0, 0.0, 0.0, 0.0, 1.0});
 
-
     using std::placeholders::_1;
 
     tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
     tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
-    publisher_ = this->create_publisher<trajectory_msgs::msg::JointTrajectory>("/scaled_joint_trajectory_controller/joint_trajectory", 10);
+    visual_tools_.reset(new rviz_visual_tools::RvizVisualTools("map", "/neura_task_markers", this));
+
     follow_joint_traj_client_ = rclcpp_action::create_client<FollowJointTrajectory>(this, "/scaled_joint_trajectory_controller/follow_joint_trajectory");
     waypoint_follower_client_ = rclcpp_action::create_client<FollowWaypoints>(this, "/follow_waypoints");
     path_follower_client_ = rclcpp_action::create_client<FollowPath>(this, "/follow_path");
@@ -159,7 +160,6 @@ public:
 private:
   rclcpp::TimerBase::SharedPtr main_loop_timer_;
   rclcpp::TimerBase::SharedPtr task_retry_timer_;
-  rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr publisher_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr robot_description_subscription_;
   rclcpp_action::Client<nav2_msgs::action::FollowWaypoints>::SharedPtr waypoint_follower_client_;
   rclcpp_action::Client<nav2_msgs::action::FollowPath>::SharedPtr path_follower_client_;
@@ -176,6 +176,8 @@ private:
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_{nullptr};
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
 
+  rviz_visual_tools::RvizVisualToolsPtr visual_tools_;
+
   const std::vector<std::string> joint_names = {"ur5eshoulder_pan_joint", "ur5eshoulder_lift_joint", "ur5eelbow_joint", "ur5ewrist_1_joint", "ur5ewrist_2_joint", "ur5ewrist_3_joint"};
 
   //static constexpr std::array<std::string_view, 6> joint_names = {"shoulder_pan_joint"sv, "shoulder_lift_joint"sv, "elbow_joint"sv, "wrist_1_joint"sv, "wrist_2_joint"sv, "wrist_3_joint"sv};
@@ -187,7 +189,6 @@ private:
 
   void execute_computed_path(const std::vector<trajectory_msgs::msg::JointTrajectoryPoint> &path);
 
-  void move_to_joint_state(const std::vector<double> &joint_values, double time_to_move);
   std::vector<trajectory_msgs::msg::JointTrajectoryPoint> test_joint_state(size_t num_joints);
 
   std::vector<trajectory_msgs::msg::JointTrajectoryPoint> compute_sine_joints(std::vector<double> mid_values, std::vector<double> range, double traj_duration, size_t steps);
