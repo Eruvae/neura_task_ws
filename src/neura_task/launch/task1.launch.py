@@ -11,7 +11,15 @@ def generate_launch_description():
             executable='neura_task_node',
             name='neura_task_node',
             parameters=[
-                {"task": "task1"}
+                {"task": "task1"},
+                {"circle_center_x": -1.0},
+                {"circle_center_y": 0.5},
+                {"circle_radius": 0.75},
+                {"circle_num_points": 16},
+                {"sine_joint_mid_values": [1.57, -1.57, 0.0, -1.57, 0.0, 0.0]},
+                {"sine_joint_range": [0.785, 0.785, 0.785, 0.785, 0.785, 0.785]},
+                {"sine_joint_traj_duration": 10.0},
+                {"sine_joint_traj_steps": 100}
             ])
 
     return LaunchDescription([

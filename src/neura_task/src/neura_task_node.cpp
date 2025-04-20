@@ -113,7 +113,7 @@ std::vector<trajectory_msgs::msg::JointTrajectoryPoint> NeuraTaskNode::test_join
 }
 
 // assume max/min ang around 0
-std::vector<trajectory_msgs::msg::JointTrajectoryPoint> NeuraTaskNode::compute_sine_joints(std::vector<double> mid_values, std::vector<double> range, double traj_duration, double steps)
+std::vector<trajectory_msgs::msg::JointTrajectoryPoint> NeuraTaskNode::compute_sine_joints(std::vector<double> mid_values, std::vector<double> range, double traj_duration, size_t steps)
 {
   if (mid_values.size() != range.size())
   {
@@ -498,14 +498,14 @@ void NeuraTaskNode::compute_and_move_in_circle()
   // move robot to start position
   std::vector<geometry_msgs::msg::PoseStamped> waypoints;
   geometry_msgs::msg::PoseStamped center;
-  center.pose.position.x = -1.0;
-  center.pose.position.y = 0.5;
+  center.pose.position.x = get_parameter("circle_center_x").as_double();
+  center.pose.position.y = get_parameter("circle_center_y").as_double();
   center.pose.position.z = 0.0;
   center.pose.orientation.x = 0.0;
   center.pose.orientation.y = 0.0;
   center.pose.orientation.z = 0.0;
   center.pose.orientation.w = 1.0;
-  waypoints = compute_circle_waypoint(center, 0.75, 16);
+  waypoints = compute_circle_waypoint(center, get_parameter("circle_radius").as_double(), static_cast<size_t>(get_parameter("circle_num_points").as_int()));
 
   auto start_pose = waypoints[0];
 
@@ -568,10 +568,11 @@ void NeuraTaskNode::start_task1()
     }
     RCLCPP_INFO(this->get_logger(), "Start joint configuration successfully executed: '%s'", result.result->error_string.c_str());
 
-    auto joint_points = compute_sine_joints(
-      {M_PI / 2.0, -M_PI / 2.0,        0.0, -M_PI / 2.0,        0.0,        0.0},
-      {M_PI / 4.0,  M_PI / 4.0, M_PI / 4.0,  M_PI / 4.0, M_PI / 4.0, M_PI / 4.0},
-      10.0, 100);
+    auto joint_points = compute_sine_joints(get_parameter("sine_joint_mid_values").as_double_array(),
+                                            get_parameter("sine_joint_range").as_double_array(),
+                                            get_parameter("sine_joint_traj_duration").as_double(),
+                                            static_cast<size_t>(get_parameter("sine_joint_traj_steps").as_int()));
+
 
     repeat_send_joint_trajectory(joint_points);
   };

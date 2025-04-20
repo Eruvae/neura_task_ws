@@ -56,6 +56,16 @@ public:
     declare_parameter("task", "task1");
     std::string task = get_parameter("task").as_string();
 
+    // Task 1 parameters
+    declare_parameter("circle_center_x", -1.0);
+    declare_parameter("circle_center_y", 0.5);
+    declare_parameter("circle_radius", 0.75);
+    declare_parameter("circle_num_points", 16);
+    declare_parameter("sine_joint_mid_values", std::vector<double>{M_PI / 2.0, -M_PI / 2.0, 0.0, -M_PI / 2.0, 0.0, 0.0});
+    declare_parameter("sine_joint_range", std::vector<double>{M_PI / 4.0, M_PI / 4.0, M_PI / 4.0, M_PI / 4.0, M_PI / 4.0, M_PI / 4.0});
+    declare_parameter("sine_joint_traj_duration", 10.0);
+    declare_parameter("sine_joint_traj_steps", 100);
+
     using std::placeholders::_1;
 
     tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
@@ -89,7 +99,7 @@ public:
       rclcpp::shutdown();
     }
 
-    main_loop_timer_ = this->create_wall_timer(1000ms, std::bind(&NeuraTaskNode::main_loop_callback, this));
+    //main_loop_timer_ = this->create_wall_timer(1000ms, std::bind(&NeuraTaskNode::main_loop_callback, this));
 
     if (task == "task1") {
       RCLCPP_INFO(this->get_logger(), "Starting task 1");
@@ -168,7 +178,7 @@ private:
   void move_to_joint_state(const std::vector<double> &joint_values, double time_to_move);
   std::vector<trajectory_msgs::msg::JointTrajectoryPoint> test_joint_state(size_t num_joints);
 
-  std::vector<trajectory_msgs::msg::JointTrajectoryPoint> compute_sine_joints(std::vector<double> mid_values, std::vector<double> range, double traj_duration, double steps);
+  std::vector<trajectory_msgs::msg::JointTrajectoryPoint> compute_sine_joints(std::vector<double> mid_values, std::vector<double> range, double traj_duration, size_t steps);
 
   std::vector<trajectory_msgs::msg::JointTrajectoryPoint> compute_cartesian_path(geometry_msgs::msg::Pose &start, geometry_msgs::msg::Pose &end, double velocity, double acceleration, double step_size);
 

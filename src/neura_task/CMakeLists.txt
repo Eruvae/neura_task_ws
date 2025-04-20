@@ -33,7 +33,6 @@ install(TARGETS neura_task_node
  # Install launch files
 install(DIRECTORY
   launch
-  urdf
   DESTINATION share/${PROJECT_NAME}/
 )
 
