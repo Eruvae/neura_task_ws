@@ -136,6 +136,7 @@ public:
 
 private:
   rclcpp::TimerBase::SharedPtr main_loop_timer_;
+  rclcpp::TimerBase::SharedPtr task_retry_timer_;
   rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr publisher_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr robot_description_subscription_;
   rclcpp_action::Client<nav2_msgs::action::FollowWaypoints>::SharedPtr waypoint_follower_client_;

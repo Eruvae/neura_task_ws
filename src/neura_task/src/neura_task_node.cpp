@@ -306,34 +306,31 @@ void NeuraTaskNode::start_task2a()
 
 void NeuraTaskNode::compute_and_move_to_cartesian_pose(const geometry_msgs::msg::Pose &pose)
 {
+  task_retry_timer_->cancel();
   // compute current robot pose
   geometry_msgs::msg::TransformStamped base_link_transform;
   std::string to_frame = "base_link";
   std::string from_frame = "map";
-  bool configuration_found = false;
   KDL::JntArray result_positions(chain_.getNrOfJoints());
 
-  while (!configuration_found)
-  {
-    try {
-      base_link_transform = tf_buffer_->lookupTransform(to_frame, from_frame, tf2::TimePointZero);
-    }
-    catch (const tf2::TransformException & ex) {
-      RCLCPP_INFO(this->get_logger(), "Could not transform %s to %s: %s", to_frame.c_str(), from_frame.c_str(), ex.what());
-      rclcpp::sleep_for(std::chrono::milliseconds(100));
-      continue;
-    }
-  
-    geometry_msgs::msg::Pose pose_base_link;
-    tf2::doTransform(pose, pose_base_link, base_link_transform);
-  
-    KDL::JntArray init_positions(chain_.getNrOfJoints());
-    KDL::Frame frame = KDL::Frame(KDL::Rotation::Quaternion(pose_base_link.orientation.x, pose_base_link.orientation.y, pose_base_link.orientation.z, pose_base_link.orientation.w), KDL::Vector(pose_base_link.position.x, pose_base_link.position.y, pose_base_link.position.z));
-    if (ik_solver_->CartToJnt(init_positions, frame, result_positions) < 0) {
-      RCLCPP_ERROR(this->get_logger(), "IK solver failed to compute joint configuration, repeat trying");
-      rclcpp::sleep_for(std::chrono::milliseconds(100));
-      continue;
-    }
+  try {
+    base_link_transform = tf_buffer_->lookupTransform(to_frame, from_frame, tf2::TimePointZero);
+  }
+  catch (const tf2::TransformException & ex) {
+    RCLCPP_INFO(this->get_logger(), "Could not transform %s to %s: %s", to_frame.c_str(), from_frame.c_str(), ex.what());
+    task_retry_timer_->reset();
+    return;
+  }
+
+  geometry_msgs::msg::Pose pose_base_link;
+  tf2::doTransform(pose, pose_base_link, base_link_transform);
+
+  KDL::JntArray init_positions(chain_.getNrOfJoints());
+  KDL::Frame frame = KDL::Frame(KDL::Rotation::Quaternion(pose_base_link.orientation.x, pose_base_link.orientation.y, pose_base_link.orientation.z, pose_base_link.orientation.w), KDL::Vector(pose_base_link.position.x, pose_base_link.position.y, pose_base_link.position.z));
+  if (ik_solver_->CartToJnt(init_positions, frame, result_positions) < 0) {
+    RCLCPP_ERROR(this->get_logger(), "IK solver failed to compute joint configuration, repeat trying");
+    task_retry_timer_->reset();
+    return;
   }
   
   auto joint_traj_msg = FollowJointTrajectory::Goal();
@@ -344,12 +341,12 @@ void NeuraTaskNode::compute_and_move_to_cartesian_pose(const geometry_msgs::msg:
   {
     joint_traj_msg.trajectory.points[0].positions[i] = result_positions(i);
   }
-  joint_traj_msg.trajectory.points[0].time_from_start = rclcpp::Duration::from_seconds(0.0);
+  joint_traj_msg.trajectory.points[0].time_from_start = rclcpp::Duration::from_seconds(1.0); // TODO: compute time from start based on distance to current position
   auto joint_traj_goal_options = rclcpp_action::Client<FollowJointTrajectory>::SendGoalOptions();
   joint_traj_goal_options.goal_response_callback = [this](const auto &goal_handle) {
     if (!goal_handle) {
       RCLCPP_ERROR(this->get_logger(), "IK joint configuration was rejected by server");
-      return;
+      task_retry_timer_->reset();
     } else {
       RCLCPP_INFO(this->get_logger(), "IK joint configuration accepted by server, waiting for result");
     }
@@ -357,10 +354,9 @@ void NeuraTaskNode::compute_and_move_to_cartesian_pose(const geometry_msgs::msg:
   joint_traj_goal_options.result_callback = [this, pose](const auto &result) {
     if (result.code != rclcpp_action::ResultCode::SUCCEEDED || result.result->error_code != 0) {
       RCLCPP_ERROR(this->get_logger(), "IK joint configuration failed: '%s'", result.result->error_string.c_str());
-      compute_and_move_to_cartesian_pose(pose);
     }
     RCLCPP_INFO(this->get_logger(), "IK joint configuration successfully executed: '%s'", result.result->error_string.c_str());
-    compute_and_move_to_cartesian_pose(pose);
+    task_retry_timer_->reset();
   };
   follow_joint_traj_client_->async_send_goal(joint_traj_msg, joint_traj_goal_options);
 }
@@ -380,7 +376,9 @@ void NeuraTaskNode::start_task2b()
   middle_pose.orientation.z = 0.0;
   middle_pose.orientation.w = 1.0;
 
-  compute_and_move_to_cartesian_pose(middle_pose);
+  task_retry_timer_ = create_wall_timer(100ms, [this, middle_pose]() {
+    this->compute_and_move_to_cartesian_pose(middle_pose);
+  });
 }
 
 void NeuraTaskNode::robot_description_callback(const std_msgs::msg::String::SharedPtr msg)
