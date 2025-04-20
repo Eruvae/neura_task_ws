@@ -142,21 +142,6 @@ private:
   void repeat_send_path(const std::vector<geometry_msgs::msg::PoseStamped> &path_points);
   void repeat_send_joint_trajectory(const std::vector<trajectory_msgs::msg::JointTrajectoryPoint> &joint_points);
 
-  void send_nav2_path(const std::vector<geometry_msgs::msg::PoseStamped> &goal_points);
-  void path_goal_response_callback(const GoalHandlePath::SharedPtr &goal_handle);
-  void path_feedback_callback(GoalHandlePath::SharedPtr, const std::shared_ptr<const FollowPath::Feedback> feedback);
-  void path_result_callback(const GoalHandlePath::WrappedResult &result);
-
-  void send_nav2_waypoints(const std::vector<geometry_msgs::msg::PoseStamped> &goal_points);
-  void waypoint_goal_response_callback(const GoalHandleWaypoints::SharedPtr &goal_handle);
-  void waypoint_feedback_callback(GoalHandleWaypoints::SharedPtr, const std::shared_ptr<const FollowWaypoints::Feedback> feedback);
-  void waypoint_result_callback(const GoalHandleWaypoints::WrappedResult &result);
-
-  void send_goal(const std::vector<double> &joint_values, double time_to_move);
-  void joint_traj_goal_response_callback(const GoalHandleTrajectory::SharedPtr &goal_handle);
-  void joint_traj_feedback_callback(GoalHandleTrajectory::SharedPtr, const std::shared_ptr<const FollowJointTrajectory::Feedback> feedback);
-  void joint_traj_result_callback(const GoalHandleTrajectory::WrappedResult &result);
-
   void move_to_joint_state(const std::vector<double> &joint_values, double time_to_move);
   std::vector<trajectory_msgs::msg::JointTrajectoryPoint> test_joint_state(size_t num_joints);
 
