@@ -160,10 +160,13 @@ private:
   void move_to_joint_state(const std::vector<double> &joint_values, double time_to_move);
   std::vector<trajectory_msgs::msg::JointTrajectoryPoint> test_joint_state(size_t num_joints);
 
-  // assume max/min ang around 0
   std::vector<trajectory_msgs::msg::JointTrajectoryPoint> compute_sine_joints(std::vector<double> mid_values, std::vector<double> range, double traj_duration, double steps);
+
+  std::vector<trajectory_msgs::msg::JointTrajectoryPoint> compute_cartesian_path(geometry_msgs::msg::Pose &start, geometry_msgs::msg::Pose &end, double velocity, double acceleration, double step_size);
 
   void main_loop_callback();
 
   void robot_description_callback(const std_msgs::msg::String::SharedPtr msg);
+
+  void test_solver();
 };

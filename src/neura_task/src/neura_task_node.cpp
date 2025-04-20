@@ -1,5 +1,7 @@
 #include "neura_task/neura_task_node.hpp"
 
+#include "kdl/rotational_interpolation_sa.hpp"
+
 std::vector<geometry_msgs::msg::PoseStamped> NeuraTaskNode::compute_circle_waypoint(geometry_msgs::msg::PoseStamped &center, double radius, size_t num_points)
 {
   std::vector<geometry_msgs::msg::PoseStamped> res(num_points + 1);
@@ -337,6 +339,90 @@ std::vector<trajectory_msgs::msg::JointTrajectoryPoint> NeuraTaskNode::compute_s
   return res;
 }
 
+std::vector<trajectory_msgs::msg::JointTrajectoryPoint> NeuraTaskNode::compute_cartesian_path(geometry_msgs::msg::Pose &start, geometry_msgs::msg::Pose &end, double velocity, double acceleration, double step_size)
+{
+  KDL::JntArray init_positions(chain_.getNrOfJoints());
+  KDL::Frame start_frame = KDL::Frame(KDL::Rotation::Quaternion(start.orientation.x, start.orientation.y, start.orientation.z, start.orientation.w), KDL::Vector(start.position.x, start.position.y, start.position.z));
+  KDL::Frame end_frame = KDL::Frame(KDL::Rotation::Quaternion(end.orientation.x, end.orientation.y, end.orientation.z, end.orientation.w), KDL::Vector(end.position.x, end.position.y, end.position.z));
+  KDL::JntArray result_positions(chain_.getNrOfJoints());
+  if (ik_solver_->CartToJnt(init_positions, start_frame, result_positions) < 0) {
+    RCLCPP_ERROR(this->get_logger(), "IK solver failed to compute start joint configuration");
+    return {};
+  }
+  KDL::RotationalInterpolation_SingleAxis rot_interp;
+  rot_interp.SetStartEnd(start_frame.M, end_frame.M);
+  double path_length = sqrt(pow(end.position.x - start.position.x, 2) + pow(end.position.y - start.position.y, 2) + pow(end.position.z - start.position.z, 2));
+  double t_accel = velocity / acceleration;
+  double d_accel = 0.5 * acceleration * t_accel * t_accel;
+  double total_time = 0.0;
+  bool triangular = false;
+
+  if (2.0 * d_accel >= path_length)
+  {
+    // triangular profile
+    t_accel = std::sqrt(path_length / acceleration);
+    total_time = 2.0 * t_accel;
+    triangular = true;
+  }
+  else
+  {
+    double d_const = path_length - 2.0 * d_accel;
+    double t_const = d_const / velocity;
+    total_time = 2.0 * t_accel + t_const;
+  }
+
+  size_t num_steps = static_cast<size_t>(path_length / step_size);
+  std::vector<trajectory_msgs::msg::JointTrajectoryPoint> res(num_steps);
+  for (size_t i=0; i < num_steps; i++)
+  {
+    res[i].positions.resize(chain_.getNrOfJoints());
+    double cur_frac = static_cast<double>(i) / static_cast<double>(num_steps-1);
+    double s = cur_frac * path_length; // current distance along the path
+    KDL::Rotation cur_rot = rot_interp.Pos(cur_frac * rot_interp.Angle());
+    KDL::Vector cur_pos = start_frame.p + (end_frame.p - start_frame.p) * cur_frac;
+    KDL::Frame cur_frame = KDL::Frame(cur_rot, cur_pos);
+    if (ik_solver_->CartToJnt(init_positions, cur_frame, result_positions) < 0) {
+      RCLCPP_ERROR(this->get_logger(), "IK solver failed to compute joint configuration, returning partial path (fraction: %f)", cur_frac);
+      res.resize(i);
+      return res;
+    }
+    for (size_t j=0; j < chain_.getNrOfJoints(); j++)
+    {
+      res[i].positions[j] = result_positions(j);
+      //RCLCPP_INFO(this->get_logger(), "Frac: '%f', Pos: '%f'", cur_frac, res[i].positions[j]);
+    }
+
+    // compute time from start
+    double t = 0.0;
+    if (triangular) {
+      if (s < 0.5 * path_length) {
+        t = std::sqrt(2.0 * s / acceleration);
+      }
+      else {
+        double s_remain = path_length - s;
+        t = total_time - std::sqrt(2.0 * s_remain / acceleration);
+      }
+    }
+    else {
+      if (s < d_accel) {
+        t = std::sqrt(2.0 * s / acceleration);
+      }
+      else if (s < (path_length - d_accel)) {
+        double s_const = s - d_accel;
+        t = t_accel + s_const / velocity;
+      }
+      else {
+        double s_remain = path_length - s;
+        t = total_time - std::sqrt(2.0 * s_remain / acceleration);
+      }
+    }
+
+    res[i].time_from_start = rclcpp::Duration::from_seconds(t);
+    init_positions = result_positions; // update initial positions for next step
+  }
+  return res;
+}
+
 void NeuraTaskNode::robot_description_callback(const std_msgs::msg::String::SharedPtr msg)
 {
   // RCLCPP_INFO(this->get_logger(), "Robot description: '%s'", msg->data.c_str());
@@ -353,7 +439,83 @@ void NeuraTaskNode::robot_description_callback(const std_msgs::msg::String::Shar
   }
 
   ik_solver_ = std::make_unique<KDL::ChainIkSolverPos_LMA>(chain_);
+  //test_solver();
 
+  geometry_msgs::msg::Pose start_pose;
+  start_pose.position.x = 0.757;
+  start_pose.position.y = 0.135;
+  start_pose.position.z = 1.288;
+  start_pose.orientation.x = 0.864;
+  start_pose.orientation.y = 0.371;
+  start_pose.orientation.z = -0.100;
+  start_pose.orientation.w = -0.325;
+
+  geometry_msgs::msg::Pose end_pose;
+  end_pose.position.x = 0.106;
+  end_pose.position.y = 0.258;
+  end_pose.position.z = 1.763;
+  end_pose.orientation.x = -0.655;
+  end_pose.orientation.y = 0.268;
+  end_pose.orientation.z = 0.133;
+  end_pose.orientation.w = 0.693;
+
+  // compute cartesian path
+  auto cartesian_path = compute_cartesian_path(start_pose, end_pose, 0.1, 0.1, 0.01);
+  if (cartesian_path.empty()) {
+    RCLCPP_ERROR(this->get_logger(), "Failed to compute cartesian path");
+    return;
+  }
+
+  // go to start pose
+  auto joint_traj_msg = FollowJointTrajectory::Goal();
+  joint_traj_msg.trajectory.joint_names = joint_names;
+  joint_traj_msg.trajectory.points.resize(1);
+  joint_traj_msg.trajectory.points[0].positions = cartesian_path[0].positions;
+  joint_traj_msg.trajectory.points[0].time_from_start = rclcpp::Duration::from_seconds(5.0);
+  auto joint_traj_goal_options = rclcpp_action::Client<FollowJointTrajectory>::SendGoalOptions();
+  joint_traj_goal_options.goal_response_callback = [this, cartesian_path](const auto &goal_handle) {
+    if (!goal_handle) {
+      RCLCPP_ERROR(this->get_logger(), "Start joint configuration was rejected by server");
+      return;
+    } else {
+      RCLCPP_INFO(this->get_logger(), "Start joint configuration accepted by server, waiting for result");
+    }
+  };
+  joint_traj_goal_options.result_callback = [this, cartesian_path](const auto &result) {
+    if (result.code != rclcpp_action::ResultCode::SUCCEEDED || result.result->error_code != 0) {
+      RCLCPP_ERROR(this->get_logger(), "Start joint configuration failed: '%s'", result.result->error_string.c_str());
+      return;
+    }
+    RCLCPP_INFO(this->get_logger(), "Start joint configuration successfully executed: '%s'", result.result->error_string.c_str());
+
+    // Execute cartesian path
+    RCLCPP_INFO(this->get_logger(), "Executing cartesian path");
+    auto joint_traj_msg = FollowJointTrajectory::Goal();
+    joint_traj_msg.trajectory.joint_names = joint_names;
+    joint_traj_msg.trajectory.points = cartesian_path;
+    auto joint_traj_goal_options = rclcpp_action::Client<FollowJointTrajectory>::SendGoalOptions();
+    joint_traj_goal_options.goal_response_callback = [this](const auto &goal_handle) {
+      if (!goal_handle) {
+        RCLCPP_ERROR(this->get_logger(), "Cartesian path was rejected by server");
+        return;
+      } else {
+        RCLCPP_INFO(this->get_logger(), "Cartesian path accepted by server, waiting for result");
+      }
+    };
+    joint_traj_goal_options.result_callback = [this](const auto &result) {
+      if (result.code != rclcpp_action::ResultCode::SUCCEEDED || result.result->error_code != 0) {
+        RCLCPP_ERROR(this->get_logger(), "Cartesian path execution failed: '%s'", result.result->error_string.c_str());
+        return;
+      }
+      RCLCPP_INFO(this->get_logger(), "Cartesian path successfully executed: '%s'", result.result->error_string.c_str());
+    };
+    follow_joint_traj_client_->async_send_goal(joint_traj_msg, joint_traj_goal_options);
+  };
+  follow_joint_traj_client_->async_send_goal(joint_traj_msg, joint_traj_goal_options);
+}
+
+void NeuraTaskNode::test_solver()
+{
   // Test solver
   KDL::JntArray init_positions(chain_.getNrOfJoints());
   const KDL::Frame pose = KDL::Frame(KDL::Rotation::RPY(0, 0, 0), KDL::Vector(0.5, 0.5, 0.5));
