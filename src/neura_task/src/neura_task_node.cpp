@@ -286,6 +286,10 @@ void NeuraTaskNode::start_task2a()
     return;
   }
 
+  std::vector<geometry_msgs::msg::Pose> cartesian_path_poses = {start_pose, end_pose};
+  visual_tools_->publishPath(cartesian_path_poses, rviz_visual_tools::RED);
+  visual_tools_->trigger();
+
   // go to start pose
   auto joint_traj_msg = FollowJointTrajectory::Goal();
   joint_traj_msg.trajectory.joint_names = joint_names;
@@ -397,6 +401,9 @@ void NeuraTaskNode::start_task2b()
   ee_pose.orientation.y = ee_pose_vec[4];
   ee_pose.orientation.z = ee_pose_vec[5];
   ee_pose.orientation.w = ee_pose_vec[6];
+
+  visual_tools_->publishZArrow(ee_pose, rviz_visual_tools::GREEN);
+  visual_tools_->trigger();
 
   task_retry_timer_ = create_wall_timer(100ms, [this, ee_pose]() {
     this->compute_and_move_to_cartesian_pose(ee_pose);
