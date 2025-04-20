@@ -1,6 +1,7 @@
 #include "neura_task/neura_task_node.hpp"
 
 #include "kdl/rotational_interpolation_sa.hpp"
+#include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 
 std::vector<geometry_msgs::msg::PoseStamped> NeuraTaskNode::compute_circle_waypoint(geometry_msgs::msg::PoseStamped &center, double radius, size_t num_points)
 {
@@ -303,9 +304,83 @@ void NeuraTaskNode::start_task2a()
   follow_joint_traj_client_->async_send_goal(joint_traj_msg, joint_traj_goal_options);
 }
 
+void NeuraTaskNode::compute_and_move_to_cartesian_pose(const geometry_msgs::msg::Pose &pose)
+{
+  // compute current robot pose
+  geometry_msgs::msg::TransformStamped base_link_transform;
+  std::string to_frame = "base_link";
+  std::string from_frame = "map";
+  bool configuration_found = false;
+  KDL::JntArray result_positions(chain_.getNrOfJoints());
+
+  while (!configuration_found)
+  {
+    try {
+      base_link_transform = tf_buffer_->lookupTransform(to_frame, from_frame, tf2::TimePointZero);
+    }
+    catch (const tf2::TransformException & ex) {
+      RCLCPP_INFO(this->get_logger(), "Could not transform %s to %s: %s", to_frame.c_str(), from_frame.c_str(), ex.what());
+      rclcpp::sleep_for(std::chrono::milliseconds(100));
+      continue;
+    }
+  
+    geometry_msgs::msg::Pose pose_base_link;
+    tf2::doTransform(pose, pose_base_link, base_link_transform);
+  
+    KDL::JntArray init_positions(chain_.getNrOfJoints());
+    KDL::Frame frame = KDL::Frame(KDL::Rotation::Quaternion(pose_base_link.orientation.x, pose_base_link.orientation.y, pose_base_link.orientation.z, pose_base_link.orientation.w), KDL::Vector(pose_base_link.position.x, pose_base_link.position.y, pose_base_link.position.z));
+    if (ik_solver_->CartToJnt(init_positions, frame, result_positions) < 0) {
+      RCLCPP_ERROR(this->get_logger(), "IK solver failed to compute joint configuration, repeat trying");
+      rclcpp::sleep_for(std::chrono::milliseconds(100));
+      continue;
+    }
+  }
+  
+  auto joint_traj_msg = FollowJointTrajectory::Goal();
+  joint_traj_msg.trajectory.joint_names = joint_names;
+  joint_traj_msg.trajectory.points.resize(1);
+  joint_traj_msg.trajectory.points[0].positions.resize(chain_.getNrOfJoints());
+  for (size_t i=0; i < chain_.getNrOfJoints(); i++)
+  {
+    joint_traj_msg.trajectory.points[0].positions[i] = result_positions(i);
+  }
+  joint_traj_msg.trajectory.points[0].time_from_start = rclcpp::Duration::from_seconds(0.0);
+  auto joint_traj_goal_options = rclcpp_action::Client<FollowJointTrajectory>::SendGoalOptions();
+  joint_traj_goal_options.goal_response_callback = [this](const auto &goal_handle) {
+    if (!goal_handle) {
+      RCLCPP_ERROR(this->get_logger(), "IK joint configuration was rejected by server");
+      return;
+    } else {
+      RCLCPP_INFO(this->get_logger(), "IK joint configuration accepted by server, waiting for result");
+    }
+  };
+  joint_traj_goal_options.result_callback = [this, pose](const auto &result) {
+    if (result.code != rclcpp_action::ResultCode::SUCCEEDED || result.result->error_code != 0) {
+      RCLCPP_ERROR(this->get_logger(), "IK joint configuration failed: '%s'", result.result->error_string.c_str());
+      compute_and_move_to_cartesian_pose(pose);
+    }
+    RCLCPP_INFO(this->get_logger(), "IK joint configuration successfully executed: '%s'", result.result->error_string.c_str());
+    compute_and_move_to_cartesian_pose(pose);
+  };
+  follow_joint_traj_client_->async_send_goal(joint_traj_msg, joint_traj_goal_options);
+}
+
 void NeuraTaskNode::start_task2b()
 {
+  // Move in the circle from task 1
+  compute_and_move_in_circle();
 
+  // Keep arm endeffector in the middle of the circle
+  geometry_msgs::msg::Pose middle_pose;
+  middle_pose.position.x = -1.0;
+  middle_pose.position.y = 0.5;
+  middle_pose.position.z = 1.0;
+  middle_pose.orientation.x = 0.0;
+  middle_pose.orientation.y = 0.0;
+  middle_pose.orientation.z = 0.0;
+  middle_pose.orientation.w = 1.0;
+
+  compute_and_move_to_cartesian_pose(middle_pose);
 }
 
 void NeuraTaskNode::robot_description_callback(const std_msgs::msg::String::SharedPtr msg)
@@ -420,11 +495,9 @@ void NeuraTaskNode::main_loop_callback()
   publisher_->publish(message);*/
 }
 
-void NeuraTaskNode::start_task1()
+void NeuraTaskNode::compute_and_move_in_circle()
 {
   // move robot to start position
-  using namespace std::placeholders;
-
   std::vector<geometry_msgs::msg::PoseStamped> waypoints;
   geometry_msgs::msg::PoseStamped center;
   center.pose.position.x = -1.0;
@@ -465,6 +538,11 @@ void NeuraTaskNode::start_task1()
   };
 
   this->navigate_to_pose_client_->async_send_goal(move_msg, send_goal_options);
+}
+
+void NeuraTaskNode::start_task1()
+{
+  compute_and_move_in_circle();
 
   // move arm to start joint state (pi/2, -pi/2, 0, -pi/2, 0, 0)
   auto joint_traj_msg = FollowJointTrajectory::Goal();

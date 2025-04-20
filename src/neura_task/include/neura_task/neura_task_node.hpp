@@ -160,6 +160,8 @@ private:
   void repeat_send_path(const std::vector<geometry_msgs::msg::PoseStamped> &path_points);
   void repeat_send_joint_trajectory(const std::vector<trajectory_msgs::msg::JointTrajectoryPoint> &joint_points);
 
+  void compute_and_move_in_circle();
+
   void execute_computed_path(const std::vector<trajectory_msgs::msg::JointTrajectoryPoint> &path);
 
   void move_to_joint_state(const std::vector<double> &joint_values, double time_to_move);
@@ -168,6 +170,8 @@ private:
   std::vector<trajectory_msgs::msg::JointTrajectoryPoint> compute_sine_joints(std::vector<double> mid_values, std::vector<double> range, double traj_duration, double steps);
 
   std::vector<trajectory_msgs::msg::JointTrajectoryPoint> compute_cartesian_path(geometry_msgs::msg::Pose &start, geometry_msgs::msg::Pose &end, double velocity, double acceleration, double step_size);
+
+  void compute_and_move_to_cartesian_pose(const geometry_msgs::msg::Pose &pose);
 
   void main_loop_callback();
 
