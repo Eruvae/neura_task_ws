@@ -16,6 +16,8 @@
 #include "nav2_msgs/action/follow_waypoints.hpp"
 #include "nav2_msgs/action/follow_path.hpp"
 #include "kdl_parser/kdl_parser.hpp"
+#include "std_msgs/msg/string.hpp"
+#include "kdl/chainiksolverpos_lma.hpp"
 
 using namespace std::chrono_literals;
 using namespace std::string_view_literals;
@@ -41,6 +43,11 @@ public:
   NeuraTaskNode()
   : Node("neura_task_node"), count_(0)
   {
+    using std::placeholders::_1;
+
+    auto robot_description_qos = rclcpp::QoS(rclcpp::KeepLast(1)).durability(RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL);
+    robot_description_subscription_ = this->create_subscription<std_msgs::msg::String>("robot_description", robot_description_qos, std::bind(&NeuraTaskNode::robot_description_callback, this, _1));
+
     publisher_ = this->create_publisher<trajectory_msgs::msg::JointTrajectory>("/scaled_joint_trajectory_controller/joint_trajectory", 10);
     follow_joint_traj_client_ = rclcpp_action::create_client<FollowJointTrajectory>(this, "/scaled_joint_trajectory_controller/follow_joint_trajectory");
     waypoint_follower_client_ = rclcpp_action::create_client<FollowWaypoints>(this, "/follow_waypoints");
@@ -98,12 +105,17 @@ public:
 private:
   rclcpp::TimerBase::SharedPtr main_loop_timer_;
   rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr publisher_;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr robot_description_subscription_;
   rclcpp_action::Client<nav2_msgs::action::FollowWaypoints>::SharedPtr waypoint_follower_client_;
   rclcpp_action::Client<nav2_msgs::action::FollowPath>::SharedPtr path_follower_client_;
   rclcpp_action::Client<nav2_msgs::action::NavigateToPose>::SharedPtr navigate_to_pose_client_;
   rclcpp_action::Client<nav2_msgs::action::NavigateThroughPoses>::SharedPtr navigate_through_poses_client_;
   rclcpp_action::Client<control_msgs::action::FollowJointTrajectory>::SharedPtr follow_joint_traj_client_;
   size_t count_;
+
+  KDL::Tree tree_;
+  KDL::Chain chain_;
+  std::unique_ptr<KDL::ChainIkSolverPos> ik_solver_;
 
   const std::vector<std::string> joint_names = {"ur5eshoulder_pan_joint", "ur5eshoulder_lift_joint", "ur5eelbow_joint", "ur5ewrist_1_joint", "ur5ewrist_2_joint", "ur5ewrist_3_joint"};
 
@@ -134,4 +146,6 @@ private:
   std::vector<trajectory_msgs::msg::JointTrajectoryPoint> compute_sine_joints(std::vector<double> mid_values, std::vector<double> range, double traj_duration, double steps);
 
   void main_loop_callback();
+
+  void robot_description_callback(const std_msgs::msg::String::SharedPtr msg);
 };

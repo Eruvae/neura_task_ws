@@ -11,14 +11,15 @@ find_package(ament_cmake REQUIRED)
 # further dependencies manually.
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
+find_package(kdl_parser REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(trajectory_msgs REQUIRED)
 find_package(control_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav2_msgs REQUIRED)
-find_package(kdl_parser REQUIRED)
 
 add_executable(neura_task_node src/neura_task_main.cpp src/neura_task_node.cpp)
-ament_target_dependencies(neura_task_node rclcpp rclcpp_action trajectory_msgs control_msgs geometry_msgs nav2_msgs kdl_parser)
+ament_target_dependencies(neura_task_node rclcpp rclcpp_action kdl_parser std_msgs trajectory_msgs control_msgs geometry_msgs nav2_msgs)
 target_include_directories(neura_task_node PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include/${PROJECT_NAME}>)

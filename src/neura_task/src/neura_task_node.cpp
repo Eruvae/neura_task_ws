@@ -2,8 +2,7 @@
 
 std::vector<geometry_msgs::msg::PoseStamped> NeuraTaskNode::compute_circle_waypoint(geometry_msgs::msg::PoseStamped &center, double radius, size_t num_points)
 {
-  std::vector<geometry_msgs::msg::PoseStamped> res;
-  res.resize(num_points + 1);
+  std::vector<geometry_msgs::msg::PoseStamped> res(num_points + 1);
   for (size_t i=0; i < num_points; i++)
   {
     //double cur_frac = static_cast<double>(i) / static_cast<double>(num_points-1);
@@ -322,9 +321,8 @@ std::vector<trajectory_msgs::msg::JointTrajectoryPoint> NeuraTaskNode::compute_s
     RCLCPP_ERROR(this->get_logger(), "Mid values and range size mismatch");
     return {};
   }
-  std::vector<trajectory_msgs::msg::JointTrajectoryPoint> res;
+  std::vector<trajectory_msgs::msg::JointTrajectoryPoint> res(steps);
   size_t num_joints = mid_values.size();
-  res.resize(steps);
   for (size_t i=0; i < steps; i++)
   {
     res[i].positions.resize(num_joints);
@@ -337,6 +335,33 @@ std::vector<trajectory_msgs::msg::JointTrajectoryPoint> NeuraTaskNode::compute_s
     res[i].time_from_start = rclcpp::Duration::from_seconds(traj_duration * cur_frac);
   }
   return res;
+}
+
+void NeuraTaskNode::robot_description_callback(const std_msgs::msg::String::SharedPtr msg)
+{
+  // RCLCPP_INFO(this->get_logger(), "Robot description: '%s'", msg->data.c_str());
+  // Construct KDL tree from URDF
+  const std::string urdf = msg->data;
+  kdl_parser::treeFromString(urdf, tree_);
+  
+  RCLCPP_INFO(this->get_logger(), "Root: '%s', joints: '%u', segments: '%u'", tree_.getRootSegment()->first.c_str(), tree_.getNrOfJoints(), tree_.getNrOfSegments());
+
+  // Get the chain from the root to the end effector
+  if (!tree_.getChain("base_link", "ur5etool0", chain_)) {
+    RCLCPP_ERROR(this->get_logger(), "Failed to get chain from base_link to tool0");
+    return;
+  }
+
+  ik_solver_ = std::make_unique<KDL::ChainIkSolverPos_LMA>(chain_);
+
+  // Test solver
+  KDL::JntArray init_positions(chain_.getNrOfJoints());
+  const KDL::Frame pose = KDL::Frame(KDL::Rotation::RPY(0, 0, 0), KDL::Vector(0.5, 0.5, 0.5));
+  KDL::JntArray result_positions(chain_.getNrOfJoints());
+  ik_solver_->CartToJnt(init_positions, pose, result_positions);
+
+  Eigen::IOFormat joint_print_fmt(Eigen::StreamPrecision, 0, ", ", "\n", "[", "]");
+  RCLCPP_INFO_STREAM(this->get_logger(), "IK solver result: " << result_positions.data.format(joint_print_fmt));
 }
 
 void NeuraTaskNode::main_loop_callback()
