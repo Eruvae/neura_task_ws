@@ -219,23 +219,35 @@ std::vector<trajectory_msgs::msg::JointTrajectoryPoint> NeuraTaskNode::compute_c
   return res;
 }
 
-void NeuraTaskNode::robot_description_callback(const std_msgs::msg::String::SharedPtr msg)
+void NeuraTaskNode::execute_computed_path(const std::vector<trajectory_msgs::msg::JointTrajectoryPoint> &path)
 {
-  // RCLCPP_INFO(this->get_logger(), "Robot description: '%s'", msg->data.c_str());
-  // Construct KDL tree from URDF
-  const std::string urdf = msg->data;
-  kdl_parser::treeFromString(urdf, tree_);
-  
-  RCLCPP_INFO(this->get_logger(), "Root: '%s', joints: '%u', segments: '%u'", tree_.getRootSegment()->first.c_str(), tree_.getNrOfJoints(), tree_.getNrOfSegments());
+  auto joint_traj_msg = FollowJointTrajectory::Goal();
+  joint_traj_msg.trajectory.joint_names = joint_names;
+  joint_traj_msg.trajectory.points = path;
+  auto joint_traj_goal_options = rclcpp_action::Client<FollowJointTrajectory>::SendGoalOptions();
+  joint_traj_goal_options.goal_response_callback = [this](const auto &goal_handle) {
+    if (!goal_handle) {
+      RCLCPP_ERROR(this->get_logger(), "Path was rejected by server");
+      return;
+    } else {
+      RCLCPP_INFO(this->get_logger(), "Path accepted by server, waiting for result");
+    }
+  };
+  joint_traj_goal_options.result_callback = [this](const auto &result) {
+    if (result.code != rclcpp_action::ResultCode::SUCCEEDED || result.result->error_code != 0) {
+      RCLCPP_ERROR(this->get_logger(), "Path execution failed: '%s'", result.result->error_string.c_str());
+      return;
+    }
+    RCLCPP_INFO(this->get_logger(), "Path successfully executed: '%s'", result.result->error_string.c_str());
+  };
+  follow_joint_traj_client_->async_send_goal(joint_traj_msg, joint_traj_goal_options);
+}
 
-  // Get the chain from the root to the end effector
-  if (!tree_.getChain("base_link", "ur5etool0", chain_)) {
-    RCLCPP_ERROR(this->get_logger(), "Failed to get chain from base_link to tool0");
-    return;
-  }
-
-  ik_solver_ = std::make_unique<KDL::ChainIkSolverPos_LMA>(chain_);
-  //test_solver();
+void NeuraTaskNode::start_task2a()
+{
+  // TODO: dynamically get poses from ros params
+  // TODO: transform poses to base_link frame
+  // TODO: move base in best position to reach both poses
 
   geometry_msgs::msg::Pose start_pose;
   start_pose.position.x = 0.757;
@@ -286,28 +298,43 @@ void NeuraTaskNode::robot_description_callback(const std_msgs::msg::String::Shar
 
     // Execute cartesian path
     RCLCPP_INFO(this->get_logger(), "Executing cartesian path");
-    auto joint_traj_msg = FollowJointTrajectory::Goal();
-    joint_traj_msg.trajectory.joint_names = joint_names;
-    joint_traj_msg.trajectory.points = cartesian_path;
-    auto joint_traj_goal_options = rclcpp_action::Client<FollowJointTrajectory>::SendGoalOptions();
-    joint_traj_goal_options.goal_response_callback = [this](const auto &goal_handle) {
-      if (!goal_handle) {
-        RCLCPP_ERROR(this->get_logger(), "Cartesian path was rejected by server");
-        return;
-      } else {
-        RCLCPP_INFO(this->get_logger(), "Cartesian path accepted by server, waiting for result");
-      }
-    };
-    joint_traj_goal_options.result_callback = [this](const auto &result) {
-      if (result.code != rclcpp_action::ResultCode::SUCCEEDED || result.result->error_code != 0) {
-        RCLCPP_ERROR(this->get_logger(), "Cartesian path execution failed: '%s'", result.result->error_string.c_str());
-        return;
-      }
-      RCLCPP_INFO(this->get_logger(), "Cartesian path successfully executed: '%s'", result.result->error_string.c_str());
-    };
-    follow_joint_traj_client_->async_send_goal(joint_traj_msg, joint_traj_goal_options);
+    execute_computed_path(cartesian_path);
   };
   follow_joint_traj_client_->async_send_goal(joint_traj_msg, joint_traj_goal_options);
+}
+
+void NeuraTaskNode::start_task2b()
+{
+
+}
+
+void NeuraTaskNode::robot_description_callback(const std_msgs::msg::String::SharedPtr msg)
+{
+  // RCLCPP_INFO(this->get_logger(), "Robot description: '%s'", msg->data.c_str());
+  // Construct KDL tree from URDF
+  const std::string urdf = msg->data;
+  kdl_parser::treeFromString(urdf, tree_);
+  
+  RCLCPP_INFO(this->get_logger(), "Root: '%s', joints: '%u', segments: '%u'", tree_.getRootSegment()->first.c_str(), tree_.getNrOfJoints(), tree_.getNrOfSegments());
+
+  // Get the chain from the root to the end effector
+  if (!tree_.getChain("base_link", "ur5etool0", chain_)) {
+    RCLCPP_ERROR(this->get_logger(), "Failed to get chain from base_link to tool0");
+    return;
+  }
+
+  ik_solver_ = std::make_unique<KDL::ChainIkSolverPos_LMA>(chain_);
+  //test_solver();
+
+  if (task_ == Task::TASK2A) {
+    start_task2a();
+  }
+  else if (task_ == Task::TASK2B) {
+    start_task2b();
+  }
+  else {
+    RCLCPP_ERROR(this->get_logger(), "Unknown task");
+  }
 }
 
 void NeuraTaskNode::test_solver()

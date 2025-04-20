@@ -43,8 +43,15 @@ public:
   using NavigateThroughPoses = nav2_msgs::action::NavigateThroughPoses;
   using GoalHandleNavigateThroughPoses = rclcpp_action::ClientGoalHandle<NavigateThroughPoses>;
 
+  enum class Task
+  {
+    TASK1,
+    TASK2A,
+    TASK2B
+  };
+
   NeuraTaskNode()
-  : Node("neura_task_node"), count_(0)
+  : Node("neura_task_node"), count_(0), task_(Task::TASK1)
   {
     declare_parameter("task", "task1");
     std::string task = get_parameter("task").as_string();
@@ -86,9 +93,16 @@ public:
 
     if (task == "task1") {
       RCLCPP_INFO(this->get_logger(), "Starting task 1");
+      task_ = Task::TASK1;
       start_task1();
     } else if (task == "task2a") {
+      task_ = Task::TASK2A;
       RCLCPP_INFO(this->get_logger(), "Starting task 2a");
+      auto robot_description_qos = rclcpp::QoS(rclcpp::KeepLast(1)).durability(RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL);
+      robot_description_subscription_ = this->create_subscription<std_msgs::msg::String>("robot_description", robot_description_qos, std::bind(&NeuraTaskNode::robot_description_callback, this, _1));
+    } else if (task == "task2b") {
+      task_ = Task::TASK2B;
+      RCLCPP_INFO(this->get_logger(), "Starting task 2b");
       auto robot_description_qos = rclcpp::QoS(rclcpp::KeepLast(1)).durability(RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL);
       robot_description_subscription_ = this->create_subscription<std_msgs::msg::String>("robot_description", robot_description_qos, std::bind(&NeuraTaskNode::robot_description_callback, this, _1));
     } else {
@@ -117,6 +131,9 @@ public:
 
   void start_task1();
 
+  void start_task2a();
+  void start_task2b();
+
 private:
   rclcpp::TimerBase::SharedPtr main_loop_timer_;
   rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr publisher_;
@@ -127,6 +144,7 @@ private:
   rclcpp_action::Client<nav2_msgs::action::NavigateThroughPoses>::SharedPtr navigate_through_poses_client_;
   rclcpp_action::Client<control_msgs::action::FollowJointTrajectory>::SharedPtr follow_joint_traj_client_;
   size_t count_;
+  Task task_;
 
   KDL::Tree tree_;
   KDL::Chain chain_;
@@ -141,6 +159,8 @@ private:
 
   void repeat_send_path(const std::vector<geometry_msgs::msg::PoseStamped> &path_points);
   void repeat_send_joint_trajectory(const std::vector<trajectory_msgs::msg::JointTrajectoryPoint> &joint_points);
+
+  void execute_computed_path(const std::vector<trajectory_msgs::msg::JointTrajectoryPoint> &path);
 
   void move_to_joint_state(const std::vector<double> &joint_values, double time_to_move);
   std::vector<trajectory_msgs::msg::JointTrajectoryPoint> test_joint_state(size_t num_joints);
