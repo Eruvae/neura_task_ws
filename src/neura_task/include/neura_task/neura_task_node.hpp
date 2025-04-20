@@ -46,10 +46,10 @@ public:
   NeuraTaskNode()
   : Node("neura_task_node"), count_(0)
   {
-    using std::placeholders::_1;
+    declare_parameter("task", "task1");
+    std::string task = get_parameter("task").as_string();
 
-    auto robot_description_qos = rclcpp::QoS(rclcpp::KeepLast(1)).durability(RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL);
-    robot_description_subscription_ = this->create_subscription<std_msgs::msg::String>("robot_description", robot_description_qos, std::bind(&NeuraTaskNode::robot_description_callback, this, _1));
+    using std::placeholders::_1;
 
     tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
     tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
@@ -84,7 +84,16 @@ public:
 
     main_loop_timer_ = this->create_wall_timer(1000ms, std::bind(&NeuraTaskNode::main_loop_callback, this));
 
-    start_task1();
+    if (task == "task1") {
+      RCLCPP_INFO(this->get_logger(), "Starting task 1");
+      start_task1();
+    } else if (task == "task2a") {
+      RCLCPP_INFO(this->get_logger(), "Starting task 2a");
+      auto robot_description_qos = rclcpp::QoS(rclcpp::KeepLast(1)).durability(RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL);
+      robot_description_subscription_ = this->create_subscription<std_msgs::msg::String>("robot_description", robot_description_qos, std::bind(&NeuraTaskNode::robot_description_callback, this, _1));
+    } else {
+      RCLCPP_ERROR(this->get_logger(), "Unknown task: %s", task.c_str());
+    }
 
     /*std::vector<geometry_msgs::msg::PoseStamped> waypoints;
     geometry_msgs::msg::PoseStamped center;

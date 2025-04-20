@@ -358,10 +358,40 @@ void NeuraTaskNode::robot_description_callback(const std_msgs::msg::String::Shar
   KDL::JntArray init_positions(chain_.getNrOfJoints());
   const KDL::Frame pose = KDL::Frame(KDL::Rotation::RPY(0, 0, 0), KDL::Vector(0.5, 0.5, 0.5));
   KDL::JntArray result_positions(chain_.getNrOfJoints());
-  ik_solver_->CartToJnt(init_positions, pose, result_positions);
-
-  Eigen::IOFormat joint_print_fmt(Eigen::StreamPrecision, 0, ", ", "\n", "[", "]");
+  if (ik_solver_->CartToJnt(init_positions, pose, result_positions) < 0) {
+    RCLCPP_ERROR(this->get_logger(), "IK solver failed");
+    return;
+  }
+  Eigen::IOFormat joint_print_fmt(Eigen::StreamPrecision, 0, ", ", " ", "[", "]");
   RCLCPP_INFO_STREAM(this->get_logger(), "IK solver result: " << result_positions.data.format(joint_print_fmt));
+
+  // Execute result
+  auto joint_traj_msg = FollowJointTrajectory::Goal();
+  joint_traj_msg.trajectory.joint_names = joint_names;
+  joint_traj_msg.trajectory.points.resize(1);
+  joint_traj_msg.trajectory.points[0].positions.resize(chain_.getNrOfJoints());
+  for (size_t i=0; i < chain_.getNrOfJoints(); i++)
+  {
+    joint_traj_msg.trajectory.points[0].positions[i] = result_positions(i);
+  }
+  joint_traj_msg.trajectory.points[0].time_from_start = rclcpp::Duration::from_seconds(5.0);
+  auto joint_traj_goal_options = rclcpp_action::Client<FollowJointTrajectory>::SendGoalOptions();
+  joint_traj_goal_options.goal_response_callback = [this](const auto &goal_handle) {
+    if (!goal_handle) {
+      RCLCPP_ERROR(this->get_logger(), "IK joint configuration was rejected by server");
+      return;
+    } else {
+      RCLCPP_INFO(this->get_logger(), "IK joint configuration accepted by server, waiting for result");
+    }
+  };
+  joint_traj_goal_options.result_callback = [this](const auto &result) {
+    if (result.code != rclcpp_action::ResultCode::SUCCEEDED || result.result->error_code != 0) {
+      RCLCPP_ERROR(this->get_logger(), "IK joint configuration failed: '%s'", result.result->error_string.c_str());
+      return;
+    }
+    RCLCPP_INFO(this->get_logger(), "IK joint configuration successfully executed: '%s'", result.result->error_string.c_str());
+  };
+  follow_joint_traj_client_->async_send_goal(joint_traj_msg, joint_traj_goal_options);
 }
 
 void NeuraTaskNode::main_loop_callback()
@@ -376,6 +406,11 @@ void NeuraTaskNode::main_loop_callback()
     RCLCPP_INFO(this->get_logger(), "Could not transform %s to %s: %s", to_frame.c_str(), from_frame.c_str(), ex.what());
     return;
   }
+
+  RCLCPP_INFO(this->get_logger(), "Transform from %s to %s: translation: x: %f, y: %f, z: %f, rotation: x: %f, y: %f, z: %f, w: %f",
+    from_frame.c_str(), to_frame.c_str(),
+    base_link_transform.transform.translation.x, base_link_transform.transform.translation.y, base_link_transform.transform.translation.z,
+    base_link_transform.transform.rotation.x, base_link_transform.transform.rotation.y, base_link_transform.transform.rotation.z, base_link_transform.transform.rotation.w);
 
   RCLCPP_INFO(this->get_logger(), "Current robot position: x: %f, y: %f, theta: %f",
     base_link_transform.transform.translation.x, base_link_transform.transform.translation.y, 2 * asin(base_link_transform.transform.rotation.z));
