@@ -366,6 +366,20 @@ void NeuraTaskNode::robot_description_callback(const std_msgs::msg::String::Shar
 
 void NeuraTaskNode::main_loop_callback()
 {
+  geometry_msgs::msg::TransformStamped base_link_transform;
+  std::string to_frame = "base_link";
+  std::string from_frame = "map";
+  try {
+    base_link_transform = tf_buffer_->lookupTransform(to_frame, from_frame, tf2::TimePointZero);
+  }
+  catch (const tf2::TransformException & ex) {
+    RCLCPP_INFO(this->get_logger(), "Could not transform %s to %s: %s", to_frame.c_str(), from_frame.c_str(), ex.what());
+    return;
+  }
+
+  RCLCPP_INFO(this->get_logger(), "Current robot position: x: %f, y: %f, theta: %f",
+    base_link_transform.transform.translation.x, base_link_transform.transform.translation.y, 2 * asin(base_link_transform.transform.rotation.z));
+
   /*constexpr double MAX_ANG = M_PI;
   static size_t cur_step = 0;
   constexpr size_t MAX_STEP = 10;
@@ -374,7 +388,7 @@ void NeuraTaskNode::main_loop_callback()
   joint_states[0] = MAX_ANG * sin(cur_frac * 2 * M_PI);
   move_to_joint_state(joint_states, 1);*/
 
-  main_loop_timer_->cancel();
+  //main_loop_timer_->cancel();
   /*double TRAJ_DURATION = 10.0;
   size_t STEPS = 100;
   auto message = trajectory_msgs::msg::JointTrajectory();

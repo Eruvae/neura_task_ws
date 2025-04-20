@@ -18,6 +18,9 @@
 #include "kdl_parser/kdl_parser.hpp"
 #include "std_msgs/msg/string.hpp"
 #include "kdl/chainiksolverpos_lma.hpp"
+#include "tf2/exceptions.h"
+#include "tf2_ros/transform_listener.h"
+#include "tf2_ros/buffer.h"
 
 using namespace std::chrono_literals;
 using namespace std::string_view_literals;
@@ -48,6 +51,9 @@ public:
     auto robot_description_qos = rclcpp::QoS(rclcpp::KeepLast(1)).durability(RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL);
     robot_description_subscription_ = this->create_subscription<std_msgs::msg::String>("robot_description", robot_description_qos, std::bind(&NeuraTaskNode::robot_description_callback, this, _1));
 
+    tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
+    tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
+
     publisher_ = this->create_publisher<trajectory_msgs::msg::JointTrajectory>("/scaled_joint_trajectory_controller/joint_trajectory", 10);
     follow_joint_traj_client_ = rclcpp_action::create_client<FollowJointTrajectory>(this, "/scaled_joint_trajectory_controller/follow_joint_trajectory");
     waypoint_follower_client_ = rclcpp_action::create_client<FollowWaypoints>(this, "/follow_waypoints");
@@ -76,7 +82,7 @@ public:
       rclcpp::shutdown();
     }
 
-    //main_loop_timer_ = this->create_wall_timer(100ms, std::bind(&NeuraTaskNode::main_loop_callback, this));
+    main_loop_timer_ = this->create_wall_timer(1000ms, std::bind(&NeuraTaskNode::main_loop_callback, this));
 
     start_task1();
 
@@ -116,6 +122,9 @@ private:
   KDL::Tree tree_;
   KDL::Chain chain_;
   std::unique_ptr<KDL::ChainIkSolverPos> ik_solver_;
+
+  std::shared_ptr<tf2_ros::TransformListener> tf_listener_{nullptr};
+  std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
 
   const std::vector<std::string> joint_names = {"ur5eshoulder_pan_joint", "ur5eshoulder_lift_joint", "ur5eelbow_joint", "ur5ewrist_1_joint", "ur5ewrist_2_joint", "ur5ewrist_3_joint"};
 
