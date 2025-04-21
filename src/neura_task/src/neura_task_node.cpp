@@ -328,24 +328,32 @@ void NeuraTaskNode::start_task2a()
   //RCLCPP_INFO(this->get_logger(), "header frame: %s, child frame: %s", base_link_transform.header.frame_id.c_str(), base_link_transform.child_frame_id.c_str());
 
   auto start_pose_vec = get_parameter("task2a_start_pose").as_double_array();
-  geometry_msgs::msg::Pose start_pose;
-  start_pose.position.x = start_pose_vec[0];
-  start_pose.position.y = start_pose_vec[1];
-  start_pose.position.z = start_pose_vec[2];
-  start_pose.orientation.x = start_pose_vec[3];
-  start_pose.orientation.y = start_pose_vec[4];
-  start_pose.orientation.z = start_pose_vec[5];
-  start_pose.orientation.w = start_pose_vec[6];
+  const geometry_msgs::msg::Pose start_pose = [&start_pose_vec]()
+  {
+    geometry_msgs::msg::Pose pose;
+    pose.position.x = start_pose_vec[0];
+    pose.position.y = start_pose_vec[1];
+    pose.position.z = start_pose_vec[2];
+    pose.orientation.x = start_pose_vec[3];
+    pose.orientation.y = start_pose_vec[4];
+    pose.orientation.z = start_pose_vec[5];
+    pose.orientation.w = start_pose_vec[6];
+    return pose;
+  }();
 
   auto end_pose_vec = get_parameter("task2a_end_pose").as_double_array();
-  geometry_msgs::msg::Pose end_pose;
-  end_pose.position.x = end_pose_vec[0];
-  end_pose.position.y = end_pose_vec[1];
-  end_pose.position.z = end_pose_vec[2];
-  end_pose.orientation.x = end_pose_vec[3];
-  end_pose.orientation.y = end_pose_vec[4];
-  end_pose.orientation.z = end_pose_vec[5];
-  end_pose.orientation.w = end_pose_vec[6];
+  const geometry_msgs::msg::Pose end_pose = [&end_pose_vec]()
+  {
+    geometry_msgs::msg::Pose pose;
+    pose.position.x = end_pose_vec[0];
+    pose.position.y = end_pose_vec[1];
+    pose.position.z = end_pose_vec[2];
+    pose.orientation.x = end_pose_vec[3];
+    pose.orientation.y = end_pose_vec[4];
+    pose.orientation.z = end_pose_vec[5];
+    pose.orientation.w = end_pose_vec[6];
+    return pose;
+  }();
 
   std::vector<geometry_msgs::msg::Pose> cartesian_path_poses = {start_pose, end_pose};
   visual_tools_->publishPath(cartesian_path_poses, rviz_visual_tools::RED);
@@ -440,11 +448,35 @@ void NeuraTaskNode::start_task2a()
         RCLCPP_INFO(this->get_logger(), "Canceling navigate to pose");
       }*/
     };
-    send_goal_options.result_callback = [this, cartesian_path](const auto &result) {
+    send_goal_options.result_callback = [this, start_pose, end_pose](const auto &result) {
       if (result.code != rclcpp_action::ResultCode::SUCCEEDED || result.result->error_code != 0) {
         RCLCPP_ERROR(this->get_logger(), "Navigate to pose failed: '%s'", result.result->error_msg.c_str());
+      }
+
+      // get actual base transform
+      geometry_msgs::msg::TransformStamped base_link_transform;
+      std::string to_frame = "base_link";
+      std::string from_frame = "map";
+      try {
+        base_link_transform = tf_buffer_->lookupTransform(to_frame, from_frame, tf2::TimePointZero, tf2::Duration(5s));
+      }
+      catch (const tf2::TransformException & ex) {
+        RCLCPP_INFO(this->get_logger(), "Could not transform %s to %s: %s", to_frame.c_str(), from_frame.c_str(), ex.what());
         return;
       }
+
+      // recompute cartesian path with new base transform
+      geometry_msgs::msg::Pose start_pose_base_link;
+      tf2::doTransform(start_pose, start_pose_base_link, base_link_transform);
+      geometry_msgs::msg::Pose end_pose_base_link;
+      tf2::doTransform(end_pose, end_pose_base_link, base_link_transform);
+
+      auto cartesian_path = compute_cartesian_path(start_pose_base_link, end_pose_base_link, 0.1, 0.1, 0.01);
+      if (cartesian_path.empty()) {
+        RCLCPP_ERROR(this->get_logger(), "Failed to compute cartesian path after base movement, aborting");
+        return;
+      }
+
       RCLCPP_INFO(this->get_logger(), "Navigate to pose successfully executed.");
       move_to_start_then_execute(cartesian_path);
     };
