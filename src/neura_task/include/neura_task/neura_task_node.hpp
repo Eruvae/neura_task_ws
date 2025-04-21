@@ -5,6 +5,7 @@
 #include <memory>
 #include <array>
 #include <string>
+#include <random>
 
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
@@ -52,7 +53,7 @@ public:
   };
 
   NeuraTaskNode()
-  : Node("neura_task_node"), count_(0), task_(Task::TASK1)
+  : Node("neura_task_node"), task_(Task::TASK1), random_engine_(random_device_())
   {
     declare_parameter("task", "task1");
     std::string task = get_parameter("task").as_string();
@@ -157,15 +158,8 @@ public:
     //timer_ = this->create_wall_timer(
     //1000ms, std::bind(&NeuraTaskNode::timer_callback, this));
   }
-
-  std::vector<geometry_msgs::msg::PoseStamped> compute_circle_waypoint(geometry_msgs::msg::PoseStamped &center, double radius, size_t num_points);
-
-  void start_task1();
-
-  void start_task2a();
-  void start_task2b();
-
 private:
+
   rclcpp::TimerBase::SharedPtr main_loop_timer_;
   rclcpp::TimerBase::SharedPtr task_retry_timer_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr robot_description_subscription_;
@@ -174,7 +168,6 @@ private:
   rclcpp_action::Client<nav2_msgs::action::NavigateToPose>::SharedPtr navigate_to_pose_client_;
   rclcpp_action::Client<nav2_msgs::action::NavigateThroughPoses>::SharedPtr navigate_through_poses_client_;
   rclcpp_action::Client<control_msgs::action::FollowJointTrajectory>::SharedPtr follow_joint_traj_client_;
-  size_t count_;
   Task task_;
 
   KDL::Tree tree_;
@@ -185,6 +178,9 @@ private:
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
 
   rviz_visual_tools::RvizVisualToolsPtr visual_tools_;
+
+  std::random_device random_device_;
+  std::default_random_engine random_engine_;
 
   const std::vector<std::string> joint_names = {"ur5eshoulder_pan_joint", "ur5eshoulder_lift_joint", "ur5eelbow_joint", "ur5ewrist_1_joint", "ur5ewrist_2_joint", "ur5ewrist_3_joint"};
 
@@ -199,6 +195,8 @@ private:
 
   void execute_computed_path(const std::vector<trajectory_msgs::msg::JointTrajectoryPoint> &path);
 
+  void move_to_start_then_execute(const std::vector<trajectory_msgs::msg::JointTrajectoryPoint> &path);
+
   std::vector<trajectory_msgs::msg::JointTrajectoryPoint> test_joint_state(size_t num_joints);
 
   std::vector<trajectory_msgs::msg::JointTrajectoryPoint> compute_sine_joints(std::vector<double> mid_values, std::vector<double> range, double traj_duration, size_t steps);
@@ -212,4 +210,12 @@ private:
   void robot_description_callback(const std_msgs::msg::String::SharedPtr msg);
 
   void test_solver();
+
+  std::vector<geometry_msgs::msg::PoseStamped> compute_circle_waypoint(geometry_msgs::msg::PoseStamped &center, double radius, size_t num_points);
+
+  geometry_msgs::msg::TransformStamped get_random_base_transform(double min_x, double max_x, double min_y, double max_y);
+
+  void start_task1();
+  void start_task2a();
+  void start_task2b();
 };

@@ -192,6 +192,10 @@ std::vector<trajectory_msgs::msg::JointTrajectoryPoint> NeuraTaskNode::compute_c
     KDL::Vector cur_pos = start_frame.p + (end_frame.p - start_frame.p) * cur_frac;
     KDL::Frame cur_frame = KDL::Frame(cur_rot, cur_pos);
     if (ik_solver_->CartToJnt(init_positions, cur_frame, result_positions) < 0) {
+      if (cur_frac < 0.8) {
+        RCLCPP_ERROR(this->get_logger(), "IK solver failed to compute joint configuration, returning empty path");
+        return {};
+      }
       RCLCPP_ERROR(this->get_logger(), "IK solver failed to compute joint configuration, returning partial path (fraction: %f)", cur_frac);
       res.resize(i);
       return res;
@@ -257,15 +261,62 @@ void NeuraTaskNode::execute_computed_path(const std::vector<trajectory_msgs::msg
   follow_joint_traj_client_->async_send_goal(joint_traj_msg, joint_traj_goal_options);
 }
 
+void NeuraTaskNode::move_to_start_then_execute(const std::vector<trajectory_msgs::msg::JointTrajectoryPoint> &path)
+{
+  // go to start pose
+  auto joint_traj_msg = FollowJointTrajectory::Goal();
+  joint_traj_msg.trajectory.joint_names = joint_names;
+  joint_traj_msg.trajectory.points.resize(1);
+  joint_traj_msg.trajectory.points[0].positions = path[0].positions;
+  joint_traj_msg.trajectory.points[0].time_from_start = rclcpp::Duration::from_seconds(5.0);
+  auto joint_traj_goal_options = rclcpp_action::Client<FollowJointTrajectory>::SendGoalOptions();
+  joint_traj_goal_options.goal_response_callback = [this, path](const auto &goal_handle) {
+    if (!goal_handle) {
+      RCLCPP_ERROR(this->get_logger(), "Start joint configuration was rejected by server");
+      return;
+    } else {
+      RCLCPP_INFO(this->get_logger(), "Start joint configuration accepted by server, waiting for result");
+    }
+  };
+  joint_traj_goal_options.result_callback = [this, path](const auto &result) {
+    if (result.code != rclcpp_action::ResultCode::SUCCEEDED || result.result->error_code != 0) {
+      RCLCPP_ERROR(this->get_logger(), "Start joint configuration failed: '%s'", result.result->error_string.c_str());
+      return;
+    }
+    RCLCPP_INFO(this->get_logger(), "Start joint configuration successfully executed: '%s'", result.result->error_string.c_str());
+
+    // Execute cartesian path
+    RCLCPP_INFO(this->get_logger(), "Executing cartesian path");
+    execute_computed_path(path);
+  };
+  follow_joint_traj_client_->async_send_goal(joint_traj_msg, joint_traj_goal_options);
+}
+
+geometry_msgs::msg::TransformStamped NeuraTaskNode::get_random_base_transform(double min_x, double max_x, double min_y, double max_y)
+{
+  std::uniform_real_distribution<double> x_dist(min_x, max_x);
+  std::uniform_real_distribution<double> y_dist(min_y, max_y);
+  std::uniform_real_distribution<double> theta_dist(0.0, 2.0 * M_PI);
+  geometry_msgs::msg::TransformStamped base_link_transform;
+  base_link_transform.header.frame_id = "map";
+  base_link_transform.child_frame_id = "base_link";
+  base_link_transform.transform.translation.x = x_dist(random_engine_);
+  base_link_transform.transform.translation.y = y_dist(random_engine_);
+  base_link_transform.transform.translation.z = 0.0;
+  base_link_transform.transform.rotation.x = 0.0;
+  base_link_transform.transform.rotation.y = 0.0;
+  base_link_transform.transform.rotation.z = sin(theta_dist(random_engine_) / 2.0);
+  base_link_transform.transform.rotation.w = cos(theta_dist(random_engine_) / 2.0);
+  return base_link_transform;
+}
+
 void NeuraTaskNode::start_task2a()
 {
-  // TODO: move base in best position to reach both poses
-
   geometry_msgs::msg::TransformStamped base_link_transform;
   std::string to_frame = "base_link";
   std::string from_frame = "map";
   try {
-    base_link_transform = tf_buffer_->lookupTransform(to_frame, from_frame, tf2::TimePointZero);
+    base_link_transform = tf_buffer_->lookupTransform(to_frame, from_frame, tf2::TimePointZero, tf2::Duration(5s));
   }
   catch (const tf2::TransformException & ex) {
     RCLCPP_INFO(this->get_logger(), "Could not transform %s to %s: %s", to_frame.c_str(), from_frame.c_str(), ex.what());
@@ -292,6 +343,10 @@ void NeuraTaskNode::start_task2a()
   end_pose.orientation.z = end_pose_vec[5];
   end_pose.orientation.w = end_pose_vec[6];
 
+  std::vector<geometry_msgs::msg::Pose> cartesian_path_poses = {start_pose, end_pose};
+  visual_tools_->publishPath(cartesian_path_poses, rviz_visual_tools::RED);
+  visual_tools_->trigger();
+
   double linear_velocity = get_parameter("task2a_linear_velocity").as_double();
   double linear_acceleration = get_parameter("task2a_linear_acceleration").as_double();
   double step_size = get_parameter("task2a_step_size").as_double();
@@ -301,44 +356,81 @@ void NeuraTaskNode::start_task2a()
   geometry_msgs::msg::Pose end_pose_base_link;
   tf2::doTransform(end_pose, end_pose_base_link, base_link_transform);
 
+  bool found_valid_path = false;
+  bool need_base_movement = false;
+  geometry_msgs::msg::TransformStamped target_base_link_transform;
+
   // compute cartesian path
   auto cartesian_path = compute_cartesian_path(start_pose_base_link, end_pose_base_link, linear_velocity, linear_acceleration, step_size);
-  if (cartesian_path.empty()) {
-    RCLCPP_ERROR(this->get_logger(), "Failed to compute cartesian path");
+  if (!cartesian_path.empty()) {
+    found_valid_path = true;
+  }
+  else
+  {
+    RCLCPP_ERROR(this->get_logger(), "Failed to compute cartesian path, trying different base positions");
+    need_base_movement = true;
+    /*double min_x = std::min(start_pose.position.x, end_pose.position.x) - 0.5;
+    double max_x = std::max(start_pose.position.x, end_pose.position.x) + 0.5;
+    double min_y = std::min(start_pose.position.y, end_pose.position.y) - 0.5;
+    double max_y = std::max(start_pose.position.y, end_pose.position.y) + 0.5;*/
+
+    for (size_t i = 0; i < 100; i++)
+    {
+      // get random base transform
+      //target_base_link_transform = get_random_base_transform(min_x, max_x, min_y, max_y);
+      target_base_link_transform = get_random_base_transform(-2.0, 0.0, -0.5, 2.0); // coordinates between boxes, should be reachable
+      tf2::doTransform(start_pose, start_pose_base_link, target_base_link_transform);
+      tf2::doTransform(end_pose, end_pose_base_link, target_base_link_transform);
+
+      // compute cartesian path
+      cartesian_path = compute_cartesian_path(start_pose_base_link, end_pose_base_link, linear_velocity, linear_acceleration, step_size);
+      if (!cartesian_path.empty())
+      {
+        found_valid_path = true;
+        break;
+      }
+    }
+  }
+
+  if (!found_valid_path)
+  {
+    RCLCPP_ERROR(this->get_logger(), "Failed to compute cartesian path, aborting");
+    return;
+  }
+  if (need_base_movement)
+  {
+    // move base to new position
+    RCLCPP_INFO(this->get_logger(), "Moving base to new position");
+    auto navigate_to_pose_msg = NavigateToPose::Goal();
+    navigate_to_pose_msg.pose.header.frame_id = "map";
+    navigate_to_pose_msg.pose.header.stamp = this->now();
+    navigate_to_pose_msg.pose.pose.position.x = target_base_link_transform.transform.translation.x;
+    navigate_to_pose_msg.pose.pose.position.y = target_base_link_transform.transform.translation.y;
+    navigate_to_pose_msg.pose.pose.position.z = 0.0;
+    navigate_to_pose_msg.pose.pose.orientation = target_base_link_transform.transform.rotation;
+
+    auto send_goal_options = rclcpp_action::Client<NavigateToPose>::SendGoalOptions();
+    send_goal_options.goal_response_callback = [this](const auto &goal_handle) {
+      if (!goal_handle) {
+        RCLCPP_ERROR(this->get_logger(), "Navigate to pose was rejected by server");
+        return;
+      } else {
+        RCLCPP_INFO(this->get_logger(), "Navigate to pose accepted by server, waiting for result");
+      }
+    };
+    send_goal_options.result_callback = [this, cartesian_path](const auto &result) {
+      if (result.code != rclcpp_action::ResultCode::SUCCEEDED || result.result->error_code != 0) {
+        RCLCPP_ERROR(this->get_logger(), "Navigate to pose failed: '%s'", result.result->error_msg.c_str());
+        return;
+      }
+      RCLCPP_INFO(this->get_logger(), "Navigate to pose successfully executed.");
+      move_to_start_then_execute(cartesian_path);
+    };
+    navigate_to_pose_client_->async_send_goal(navigate_to_pose_msg, send_goal_options);
     return;
   }
 
-  std::vector<geometry_msgs::msg::Pose> cartesian_path_poses = {start_pose, end_pose};
-  visual_tools_->publishPath(cartesian_path_poses, rviz_visual_tools::RED);
-  visual_tools_->trigger();
-
-  // go to start pose
-  auto joint_traj_msg = FollowJointTrajectory::Goal();
-  joint_traj_msg.trajectory.joint_names = joint_names;
-  joint_traj_msg.trajectory.points.resize(1);
-  joint_traj_msg.trajectory.points[0].positions = cartesian_path[0].positions;
-  joint_traj_msg.trajectory.points[0].time_from_start = rclcpp::Duration::from_seconds(5.0);
-  auto joint_traj_goal_options = rclcpp_action::Client<FollowJointTrajectory>::SendGoalOptions();
-  joint_traj_goal_options.goal_response_callback = [this, cartesian_path](const auto &goal_handle) {
-    if (!goal_handle) {
-      RCLCPP_ERROR(this->get_logger(), "Start joint configuration was rejected by server");
-      return;
-    } else {
-      RCLCPP_INFO(this->get_logger(), "Start joint configuration accepted by server, waiting for result");
-    }
-  };
-  joint_traj_goal_options.result_callback = [this, cartesian_path](const auto &result) {
-    if (result.code != rclcpp_action::ResultCode::SUCCEEDED || result.result->error_code != 0) {
-      RCLCPP_ERROR(this->get_logger(), "Start joint configuration failed: '%s'", result.result->error_string.c_str());
-      return;
-    }
-    RCLCPP_INFO(this->get_logger(), "Start joint configuration successfully executed: '%s'", result.result->error_string.c_str());
-
-    // Execute cartesian path
-    RCLCPP_INFO(this->get_logger(), "Executing cartesian path");
-    execute_computed_path(cartesian_path);
-  };
-  follow_joint_traj_client_->async_send_goal(joint_traj_msg, joint_traj_goal_options);
+  move_to_start_then_execute(cartesian_path);
 }
 
 void NeuraTaskNode::compute_and_move_to_cartesian_pose(const geometry_msgs::msg::Pose &pose)
@@ -351,7 +443,7 @@ void NeuraTaskNode::compute_and_move_to_cartesian_pose(const geometry_msgs::msg:
   KDL::JntArray result_positions(chain_.getNrOfJoints());
 
   try {
-    base_link_transform = tf_buffer_->lookupTransform(to_frame, from_frame, tf2::TimePointZero);
+    base_link_transform = tf_buffer_->lookupTransform(to_frame, from_frame, tf2::TimePointZero, tf2::Duration(5s));
   }
   catch (const tf2::TransformException & ex) {
     RCLCPP_INFO(this->get_logger(), "Could not transform %s to %s: %s", to_frame.c_str(), from_frame.c_str(), ex.what());
@@ -514,7 +606,7 @@ void NeuraTaskNode::main_loop_callback()
   std::string to_frame = "base_link";
   std::string from_frame = "map";
   try {
-    base_link_transform = tf_buffer_->lookupTransform(to_frame, from_frame, tf2::TimePointZero);
+    base_link_transform = tf_buffer_->lookupTransform(to_frame, from_frame, tf2::TimePointZero, tf2::Duration(5s));
   }
   catch (const tf2::TransformException & ex) {
     RCLCPP_INFO(this->get_logger(), "Could not transform %s to %s: %s", to_frame.c_str(), from_frame.c_str(), ex.what());
@@ -544,7 +636,6 @@ void NeuraTaskNode::main_loop_callback()
   message.joint_names = joint_names;
   message.points = compute_sine_joints(MAX_ANG, TRAJ_DURATION, STEPS, 6);
   //message.points = test_joint_state(6);
-  //message.data = "Hello, world! " + std::to_string(count_++);
   //RCLCPP_INFO(this->get_logger(), "Publishing: '%s'", message.data.c_str());
   publisher_->publish(message);*/
 }

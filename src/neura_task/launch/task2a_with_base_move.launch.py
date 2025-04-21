@@ -12,15 +12,12 @@ def generate_launch_description():
             name='neura_task_node',
             parameters=[
                 {"use_sim_time": True},
-                {"task": "task2b"},
-                {"task2b_base_move_type": "line"},
-                {"task2b_endeffector_pose": [0.207, 0.743, 1.290, -0.478, 0.529, -0.501, 0.491]},
-                {"line_start_x": 0.0},
-                {"line_start_y": 0.5},
-                {"line_start_theta": 0.0},
-                {"line_end_x": 0.0},
-                {"line_end_y": 1.0},
-                {"line_end_theta": 0.0}
+                {"task": "task2a"},
+                {"task2a_start_pose": [-1.662, -0.192, 1.162, 0.746, -0.007, -0.011, 0.666]},
+                {"task2a_end_pose": [-2.181, 0.098, 1.162, 0.690, -0.282, -0.257, 0.615]},
+                {"task2a_linear_velocity": 0.1},
+                {"task2a_linear_acceleration": 0.1},
+                {"task2a_step_size": 0.01}
             ])
 
     return LaunchDescription([
