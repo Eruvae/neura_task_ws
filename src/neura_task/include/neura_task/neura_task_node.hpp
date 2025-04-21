@@ -78,6 +78,14 @@ public:
     declare_parameter("task2b_base_move_type", "circle"); // use same parameters as task 1 for circle
     declare_parameter("task2b_endeffector_pose", std::vector<double>{-1.0, 0.5, 1.0, 0.0, 0.0, 0.0, 1.0});
 
+    // line motion parameters
+    declare_parameter("line_start_x", 0.0);
+    declare_parameter("line_start_y", 0.5);
+    declare_parameter("line_start_theta", 0.0);
+    declare_parameter("line_end_x", 0.0);
+    declare_parameter("line_end_y", 1.5);
+    declare_parameter("line_end_theta", 0.0);
+
     using std::placeholders::_1;
 
     tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
@@ -183,9 +191,11 @@ private:
   //static constexpr std::array<std::string_view, 6> joint_names = {"shoulder_pan_joint"sv, "shoulder_lift_joint"sv, "elbow_joint"sv, "wrist_1_joint"sv, "wrist_2_joint"sv, "wrist_3_joint"sv};
 
   void repeat_send_path(const std::vector<geometry_msgs::msg::PoseStamped> &path_points);
+  void repeat_send_waypoints(const std::vector<geometry_msgs::msg::PoseStamped> &waypoints);
   void repeat_send_joint_trajectory(const std::vector<trajectory_msgs::msg::JointTrajectoryPoint> &joint_points);
 
   void compute_and_move_in_circle();
+  void compute_and_move_in_line();
 
   void execute_computed_path(const std::vector<trajectory_msgs::msg::JointTrajectoryPoint> &path);
 

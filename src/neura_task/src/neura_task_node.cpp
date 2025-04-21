@@ -33,11 +33,6 @@ std::vector<geometry_msgs::msg::PoseStamped> NeuraTaskNode::compute_circle_waypo
 
 void NeuraTaskNode::repeat_send_path(const std::vector<geometry_msgs::msg::PoseStamped> &path_points)
 {
-  if (!this->path_follower_client_->wait_for_action_server()) {
-    RCLCPP_ERROR(this->get_logger(), "Action server not available after waiting");
-    rclcpp::shutdown();
-  }
-
   auto path_msg = FollowPath::Goal();
   path_msg.path.header.frame_id = "map";
   path_msg.path.header.stamp = this->now();
@@ -64,6 +59,33 @@ void NeuraTaskNode::repeat_send_path(const std::vector<geometry_msgs::msg::PoseS
     repeat_send_path(path_points);
   };
   path_follower_client_->async_send_goal(path_msg, send_goal_options);
+}
+
+void NeuraTaskNode::repeat_send_waypoints(const std::vector<geometry_msgs::msg::PoseStamped> &waypoints)
+{
+  auto waypoint_msg = FollowWaypoints::Goal();
+  waypoint_msg.poses = waypoints;
+
+  auto send_goal_options = rclcpp_action::Client<FollowWaypoints>::SendGoalOptions();
+  send_goal_options.goal_response_callback = [this](const auto &goal_handle) {
+    if (!goal_handle) {
+      RCLCPP_ERROR(this->get_logger(), "Follow waypoints was rejected by server");
+      return;
+    } else {
+      RCLCPP_INFO(this->get_logger(), "Follow waypoints accepted by server, waiting for result");
+    }
+  };
+  send_goal_options.result_callback = [this, waypoints](const auto &result) {
+    if (result.code != rclcpp_action::ResultCode::SUCCEEDED || result.result->error_code != 0) {
+      RCLCPP_ERROR(this->get_logger(), "Follow waypoints failed: '%s'", result.result->error_msg.c_str());
+      return;
+    }
+    RCLCPP_INFO(this->get_logger(), "Follow waypoints successfully executed.");
+
+    // Execute the waypoints again
+    repeat_send_waypoints(waypoints);
+  };
+  waypoint_follower_client_->async_send_goal(waypoint_msg, send_goal_options);
 }
 
 void NeuraTaskNode::repeat_send_joint_trajectory(const std::vector<trajectory_msgs::msg::JointTrajectoryPoint> &joint_points)
@@ -385,6 +407,11 @@ void NeuraTaskNode::start_task2b()
     RCLCPP_INFO(this->get_logger(), "Moving base in circle");
     compute_and_move_in_circle();
   }
+  else if (base_motion_type == "line")
+  {
+    RCLCPP_INFO(this->get_logger(), "Moving base in line");
+    compute_and_move_in_line();
+  }
   else {
     RCLCPP_ERROR(this->get_logger(), "Unknown base motion type: '%s'", base_motion_type.c_str());
     return;
@@ -524,7 +551,6 @@ void NeuraTaskNode::main_loop_callback()
 
 void NeuraTaskNode::compute_and_move_in_circle()
 {
-  // move robot to start position
   std::vector<geometry_msgs::msg::PoseStamped> waypoints;
   geometry_msgs::msg::PoseStamped center;
   center.pose.position.x = get_parameter("circle_center_x").as_double();
@@ -569,6 +595,43 @@ void NeuraTaskNode::compute_and_move_in_circle()
   };
 
   this->navigate_to_pose_client_->async_send_goal(move_msg, send_goal_options);
+}
+
+void NeuraTaskNode::compute_and_move_in_line()
+{
+  std::vector<geometry_msgs::msg::PoseStamped> waypoints;
+  geometry_msgs::msg::PoseStamped start;
+  double yaw = get_parameter("line_start_theta").as_double();
+  start.pose.position.x = get_parameter("line_start_x").as_double();
+  start.pose.position.y = get_parameter("line_start_y").as_double();
+  start.pose.position.z = 0.0;
+  start.pose.orientation.x = 0.0;
+  start.pose.orientation.y = 0.0;
+  start.pose.orientation.z = sin(yaw / 2.0);
+  start.pose.orientation.w = cos(yaw / 2.0);
+  start.header.frame_id = "map";
+  start.header.stamp = this->now();
+  waypoints.push_back(start);
+
+  geometry_msgs::msg::PoseStamped end;
+  yaw = get_parameter("line_end_theta").as_double();
+  end.pose.position.x = get_parameter("line_end_x").as_double();
+  end.pose.position.y = get_parameter("line_end_y").as_double();
+  end.pose.position.z = 0.0;
+  end.pose.orientation.x = 0.0;
+  end.pose.orientation.y = 0.0;
+  end.pose.orientation.z = sin(yaw / 2.0);
+  end.pose.orientation.w = cos(yaw / 2.0);
+  end.header.frame_id = "map";
+  end.header.stamp = this->now();
+  waypoints.push_back(end);
+
+  // visualize waypoints
+  visual_tools_->publishPath(convert_pose_stamped_to_pose(waypoints), rviz_visual_tools::GREEN);
+  visual_tools_->trigger();
+
+  // Move continuously along waypoints in line
+  repeat_send_waypoints(waypoints);
 }
 
 void NeuraTaskNode::start_task1()
