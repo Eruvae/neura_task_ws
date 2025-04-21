@@ -2,6 +2,8 @@
 # Author: Pradheep Padmanabhan
 # Contributor: Adarsh Karan K P
 
+# Modified to remove keyboard control, and include navigation and custom rviz configuration
+
 import launch
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
