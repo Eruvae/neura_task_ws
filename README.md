@@ -21,13 +21,15 @@ git clone --recursive https://github.com/Eruvae/neura_task_ws.git
 ros2 launch neura_task rox.launch.py
 ```
 - Wait for Gazebo to fully load the the environment. It should look like this:
-![Screenshot of the simulation environment with gazebo and rviz.](LINK_TODO)
+![Screenshot of the simulation environment with gazebo and rviz.](images/neura_task_sim_setup.png)
 
 - For Task 1, launch:
 ```
 ros2 launch neura_task task1.launch.py
 ```
 The robot will drive in a circle, with the arm swinging in a sine motion. You can try modifying the parameters in the launch file. The path for the base will be displayed as a green circle in rviz.
+
+![Gif of task 1 executed.](images/task1.gif)
 
 - For Task 2a, launch:
 ```
@@ -38,6 +40,9 @@ or for different parameters:
 ros2 launch neura_task task2a_with_base_move.launch.py
 ```
 If the robots finds a cartesian path between the two poses, it will move the arm to the start position and execute the cartesian path. Otherwise, it will attempt to find a position for the robot base where a caresian path can be found, move there, and then execute the cartesian motion.
+Currently, the used transforms seem to be incorrect, so the path execution after base movement does not work reliably.
+
+![Gif of task 2a executed.](images/task2a.gif)
 
 - For Task 2b, launch:
 ```
@@ -50,3 +55,7 @@ ros2 launch neura_task task2b_line.launch.py
 In the first case, the robot will move in a circle like in task 1, while it tries to keep the arm in the center looking upwards.
 In the second case, the robot will move between two points, while trying to keep the arm tool in the same point.
 You can also try modifying the parameters.
+
+![Gif of task 2b with circle executed.](images/task2b_circle.gif)
+
+![Gif of task 2b with line executed.](images/task2b_line.gif)
