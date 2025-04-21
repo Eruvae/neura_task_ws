@@ -455,6 +455,11 @@ void NeuraTaskNode::compute_and_move_to_cartesian_pose(const geometry_msgs::msg:
   tf2::doTransform(pose, pose_base_link, base_link_transform);
 
   KDL::JntArray init_positions(chain_.getNrOfJoints());
+  if (joint_state_received_) { // use current joint positions to initialize to minimize movement if possible
+    for (size_t i=0; i < chain_.getNrOfJoints(); i++) {
+      init_positions(i) = current_joint_positions_[i];
+    }
+  }
   KDL::Frame frame = KDL::Frame(KDL::Rotation::Quaternion(pose_base_link.orientation.x, pose_base_link.orientation.y, pose_base_link.orientation.z, pose_base_link.orientation.w), KDL::Vector(pose_base_link.position.x, pose_base_link.position.y, pose_base_link.position.z));
   if (ik_solver_->CartToJnt(init_positions, frame, result_positions) < 0) {
     RCLCPP_ERROR(this->get_logger(), "IK solver failed to compute joint configuration, repeat trying");
@@ -470,7 +475,7 @@ void NeuraTaskNode::compute_and_move_to_cartesian_pose(const geometry_msgs::msg:
   {
     joint_traj_msg.trajectory.points[0].positions[i] = result_positions(i);
   }
-  joint_traj_msg.trajectory.points[0].time_from_start = rclcpp::Duration::from_seconds(1.0); // TODO: compute time from start based on distance to current position
+  joint_traj_msg.trajectory.points[0].time_from_start = rclcpp::Duration::from_seconds(compute_required_time_to_reach(joint_traj_msg.trajectory.points[0].positions));
   auto joint_traj_goal_options = rclcpp_action::Client<FollowJointTrajectory>::SendGoalOptions();
   joint_traj_goal_options.goal_response_callback = [this](const auto &goal_handle) {
     if (!goal_handle) {
@@ -485,7 +490,9 @@ void NeuraTaskNode::compute_and_move_to_cartesian_pose(const geometry_msgs::msg:
       RCLCPP_ERROR(this->get_logger(), "IK joint configuration failed: '%s'", result.result->error_string.c_str());
     }
     RCLCPP_INFO(this->get_logger(), "IK joint configuration successfully executed: '%s'", result.result->error_string.c_str());
-    task_retry_timer_->reset();
+    //task_retry_timer_->reset();
+    // If moved, call directly again without waiting for timer
+    compute_and_move_to_cartesian_pose(pose);
   };
   follow_joint_traj_client_->async_send_goal(joint_traj_msg, joint_traj_goal_options);
 }
@@ -527,6 +534,33 @@ void NeuraTaskNode::start_task2b()
   task_retry_timer_ = create_wall_timer(100ms, [this, ee_pose]() {
     this->compute_and_move_to_cartesian_pose(ee_pose);
   });
+}
+
+double NeuraTaskNode::compute_required_time_to_reach(const std::vector<double> &desired_joint_angles)
+{
+  if (!joint_state_received_)
+  {
+    RCLCPP_ERROR(this->get_logger(), "Joint state not received yet");
+    return 1.0; // return 1 second as fallback
+  }
+  double max_diff = 0.0;
+  for (size_t i=0; i < desired_joint_angles.size(); i++)
+  {
+    double diff = std::abs(desired_joint_angles[i] - current_joint_positions_[i]);
+    if (diff > max_diff)
+    {
+      max_diff = diff;
+    }
+  }
+  const double MAX_JOINT_VEL = M_PI; // ur5e joint velocity limit
+  double time_to_reach = max_diff / MAX_JOINT_VEL;
+  return time_to_reach;
+}
+
+void NeuraTaskNode::joint_state_callback(const sensor_msgs::msg::JointState::SharedPtr msg)
+{
+  current_joint_positions_ = msg->position;
+  joint_state_received_ = true;
 }
 
 void NeuraTaskNode::robot_description_callback(const std_msgs::msg::String::SharedPtr msg)

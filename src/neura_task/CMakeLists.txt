@@ -21,9 +21,10 @@ find_package(trajectory_msgs REQUIRED)
 find_package(control_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav2_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
 
 add_executable(neura_task_node src/neura_task_main.cpp src/neura_task_node.cpp)
-ament_target_dependencies(neura_task_node rclcpp rclcpp_action kdl_parser rviz_visual_tools tf2_ros tf2_geometry_msgs tf2_eigen std_msgs trajectory_msgs control_msgs geometry_msgs nav2_msgs)
+ament_target_dependencies(neura_task_node rclcpp rclcpp_action kdl_parser rviz_visual_tools tf2_ros tf2_geometry_msgs tf2_eigen std_msgs trajectory_msgs control_msgs geometry_msgs nav2_msgs sensor_msgs)
 target_include_directories(neura_task_node PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include/${PROJECT_NAME}>)

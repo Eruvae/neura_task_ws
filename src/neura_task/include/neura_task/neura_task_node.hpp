@@ -16,6 +16,7 @@
 #include "nav2_msgs/action/navigate_through_poses.hpp"
 #include "nav2_msgs/action/follow_waypoints.hpp"
 #include "nav2_msgs/action/follow_path.hpp"
+#include "sensor_msgs/msg/joint_state.hpp"
 #include "kdl_parser/kdl_parser.hpp"
 #include "std_msgs/msg/string.hpp"
 #include "kdl/chainiksolverpos_lma.hpp"
@@ -123,6 +124,11 @@ public:
 
     //main_loop_timer_ = this->create_wall_timer(1000ms, std::bind(&NeuraTaskNode::main_loop_callback, this));
 
+    if (task == "task2a" || task == "task2b") {
+      joint_state_subscription_ = this->create_subscription<sensor_msgs::msg::JointState>(
+        "/joint_states", rclcpp::QoS(1), std::bind(&NeuraTaskNode::joint_state_callback, this, _1));
+    }
+
     if (task == "task1") {
       RCLCPP_INFO(this->get_logger(), "Starting task 1");
       task_ = Task::TASK1;
@@ -163,6 +169,7 @@ private:
   rclcpp::TimerBase::SharedPtr main_loop_timer_;
   rclcpp::TimerBase::SharedPtr task_retry_timer_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr robot_description_subscription_;
+  rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_state_subscription_;
   rclcpp_action::Client<nav2_msgs::action::FollowWaypoints>::SharedPtr waypoint_follower_client_;
   rclcpp_action::Client<nav2_msgs::action::FollowPath>::SharedPtr path_follower_client_;
   rclcpp_action::Client<nav2_msgs::action::NavigateToPose>::SharedPtr navigate_to_pose_client_;
@@ -181,6 +188,9 @@ private:
 
   std::random_device random_device_;
   std::default_random_engine random_engine_;
+
+  bool joint_state_received_ = false;
+  std::vector<double> current_joint_positions_;
 
   const std::vector<std::string> joint_names = {"ur5eshoulder_pan_joint", "ur5eshoulder_lift_joint", "ur5eelbow_joint", "ur5ewrist_1_joint", "ur5ewrist_2_joint", "ur5ewrist_3_joint"};
 
@@ -206,6 +216,10 @@ private:
   void compute_and_move_to_cartesian_pose(const geometry_msgs::msg::Pose &pose);
 
   void main_loop_callback();
+
+  double compute_required_time_to_reach(const std::vector<double> &desired_joint_angles);
+
+  void joint_state_callback(const sensor_msgs::msg::JointState::SharedPtr msg);
 
   void robot_description_callback(const std_msgs::msg::String::SharedPtr msg);
 
