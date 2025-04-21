@@ -298,15 +298,17 @@ geometry_msgs::msg::TransformStamped NeuraTaskNode::get_random_base_transform(do
   std::uniform_real_distribution<double> y_dist(min_y, max_y);
   std::uniform_real_distribution<double> theta_dist(0.0, 2.0 * M_PI);
   geometry_msgs::msg::TransformStamped base_link_transform;
-  base_link_transform.header.frame_id = "map";
-  base_link_transform.child_frame_id = "base_link";
+  base_link_transform.header.frame_id = "base_link";
+  base_link_transform.child_frame_id = "map";
+  base_link_transform.header.stamp = this->now();
   base_link_transform.transform.translation.x = x_dist(random_engine_);
   base_link_transform.transform.translation.y = y_dist(random_engine_);
   base_link_transform.transform.translation.z = 0.0;
   base_link_transform.transform.rotation.x = 0.0;
   base_link_transform.transform.rotation.y = 0.0;
-  base_link_transform.transform.rotation.z = sin(theta_dist(random_engine_) / 2.0);
-  base_link_transform.transform.rotation.w = cos(theta_dist(random_engine_) / 2.0);
+  double yaw = theta_dist(random_engine_);
+  base_link_transform.transform.rotation.z = sin(yaw / 2.0);
+  base_link_transform.transform.rotation.w = cos(yaw / 2.0);
   return base_link_transform;
 }
 
@@ -322,6 +324,8 @@ void NeuraTaskNode::start_task2a()
     RCLCPP_INFO(this->get_logger(), "Could not transform %s to %s: %s", to_frame.c_str(), from_frame.c_str(), ex.what());
     return;
   }
+
+  //RCLCPP_INFO(this->get_logger(), "header frame: %s, child frame: %s", base_link_transform.header.frame_id.c_str(), base_link_transform.child_frame_id.c_str());
 
   auto start_pose_vec = get_parameter("task2a_start_pose").as_double_array();
   geometry_msgs::msg::Pose start_pose;
@@ -409,6 +413,10 @@ void NeuraTaskNode::start_task2a()
     navigate_to_pose_msg.pose.pose.position.z = 0.0;
     navigate_to_pose_msg.pose.pose.orientation = target_base_link_transform.transform.rotation;
 
+    // visualize target pose
+    visual_tools_->publishAxis(navigate_to_pose_msg.pose.pose, rviz_visual_tools::LARGE_SCALE);
+    visual_tools_->trigger();
+
     auto send_goal_options = rclcpp_action::Client<NavigateToPose>::SendGoalOptions();
     send_goal_options.goal_response_callback = [this](const auto &goal_handle) {
       if (!goal_handle) {
@@ -420,22 +428,22 @@ void NeuraTaskNode::start_task2a()
     };
     send_goal_options.feedback_callback = [this](auto, const auto &feedback) {
       RCLCPP_INFO(this->get_logger(), "Remaining distance: '%f'", feedback->distance_remaining);
-      // Bug: remaining distance is zero but result callback not called -> cancel as workaround
+      // Former bug: remaining distance is zero but result callback not called -> cancel as workaround
       // But also: remaining distance is zero at the start for some reason -> wait until it has been bigger once
-      static bool first_real_feedback = false;
+      // caused by inconsistent angle in randomly generated transform -> fixed
+      /*static bool first_real_feedback = false;
       if (!first_real_feedback && feedback->distance_remaining > 0.01) {
         first_real_feedback = true;
       }
       if (first_real_feedback && feedback->distance_remaining < 0.01) {
         navigate_to_pose_client_->async_cancel_all_goals();
         RCLCPP_INFO(this->get_logger(), "Canceling navigate to pose");
-      }
+      }*/
     };
     send_goal_options.result_callback = [this, cartesian_path](const auto &result) {
       if (result.code != rclcpp_action::ResultCode::SUCCEEDED || result.result->error_code != 0) {
         RCLCPP_ERROR(this->get_logger(), "Navigate to pose failed: '%s'", result.result->error_msg.c_str());
-        //return;
-        // Still execute the path as workaround for the above bug
+        return;
       }
       RCLCPP_INFO(this->get_logger(), "Navigate to pose successfully executed.");
       move_to_start_then_execute(cartesian_path);
