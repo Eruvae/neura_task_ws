@@ -418,10 +418,24 @@ void NeuraTaskNode::start_task2a()
         RCLCPP_INFO(this->get_logger(), "Navigate to pose accepted by server, waiting for result");
       }
     };
+    send_goal_options.feedback_callback = [this](auto, const auto &feedback) {
+      RCLCPP_INFO(this->get_logger(), "Remaining distance: '%f'", feedback->distance_remaining);
+      // Bug: remaining distance is zero but result callback not called -> cancel as workaround
+      // But also: remaining distance is zero at the start for some reason -> wait until it has been bigger once
+      static bool first_real_feedback = false;
+      if (!first_real_feedback && feedback->distance_remaining > 0.01) {
+        first_real_feedback = true;
+      }
+      if (first_real_feedback && feedback->distance_remaining < 0.01) {
+        navigate_to_pose_client_->async_cancel_all_goals();
+        RCLCPP_INFO(this->get_logger(), "Canceling navigate to pose");
+      }
+    };
     send_goal_options.result_callback = [this, cartesian_path](const auto &result) {
       if (result.code != rclcpp_action::ResultCode::SUCCEEDED || result.result->error_code != 0) {
         RCLCPP_ERROR(this->get_logger(), "Navigate to pose failed: '%s'", result.result->error_msg.c_str());
-        return;
+        //return;
+        // Still execute the path as workaround for the above bug
       }
       RCLCPP_INFO(this->get_logger(), "Navigate to pose successfully executed.");
       move_to_start_then_execute(cartesian_path);
